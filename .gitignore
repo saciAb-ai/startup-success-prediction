@@ -1,0 +1,22 @@
+# Données brutes - à télécharger manuellement depuis Kaggle
+data/raw/
+*.csv
+!data/processed/*.csv
+!data/cleaned/*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
