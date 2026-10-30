@@ -1,6 +1,4 @@
-# DonnÃ©es brutes - Ã  tÃ©lÃ©charger manuellement depuis Kaggle
-data/raw/
-*.csv
+# Données traitées / nettoyées - autorisées à être committées
 !data/processed/*.csv
 !data/cleaned/*.csv
 
@@ -20,3 +18,4 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
