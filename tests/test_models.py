@@ -40,7 +40,7 @@ def test_input_frame_columns_types_and_missing_values():
     assert X.loc[0, "country_code"] == "USA"
     assert pd.isna(X.loc[0, "city"]) and pd.isna(X.loc[0, "primary_category"])
     assert X.loc[0, "founding_year"] == 2010.0
-    assert pd.isna(X.loc[0, "founding_month"])
+    assert "founding_month" not in X.columns or pd.isna(X.loc[0, "founding_month"])
     assert str(X["founding_year"].dtype) == "float64"
 
 
@@ -61,7 +61,7 @@ def test_probability_model(tmp_path, dummy_pipeline):
     assert any("scikit-learn" in note for note in loaded.notes)
 
     X = models.make_input_frame(
-        {"country_code": "USA", "primary_category": "Software", "founding_year": 2010, "founding_month": 5}
+        {"country_code": "USA", "primary_category": "Software", "founding_year": 2010}
     )
     result = models.predict_profile(loaded, X)
     assert result.score_kind == "probability"
@@ -96,3 +96,10 @@ def test_rejects_invalid_metadata(tmp_path, dummy_pipeline):
     path.with_suffix(".json").write_text("{pas du json", encoding="utf-8")
     with pytest.raises(models.ModelContractError):
         models.load_model(path)
+
+
+def test_eda_only_columns_never_reach_the_model():
+    """Les colonnes d'analyse seulement (ex. founding_month) sont refusées en entrée."""
+    for column in getattr(features, "EDA_ONLY_COLUMNS", ()):
+        with pytest.raises(ValueError):
+            models.make_input_frame({column: 1})

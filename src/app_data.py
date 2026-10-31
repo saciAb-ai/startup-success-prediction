@@ -154,6 +154,8 @@ def variable_role(column: str) -> str:
     """Rôle d'une colonne dans le projet (affiché à côté des manquants)."""
     if column in features.FEATURE_COLUMNS:
         return "Entrée du modèle"
+    if column in getattr(features, "EDA_ONLY_COLUMNS", ()):
+        return "Analyse seulement (exclue du modèle)"
     if column == "status":
         return "Sert uniquement à construire la cible"
     if column in splitting.FORBIDDEN_FEATURES or column == FUNDING_LOG_COLUMN:

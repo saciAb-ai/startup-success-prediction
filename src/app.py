@@ -25,6 +25,7 @@ import app_data  # noqa: E402
 import dashboard_eda  # noqa: E402
 import dashboard_prediction  # noqa: E402
 import data_loader  # noqa: E402
+import features  # noqa: E402
 import models  # noqa: E402
 import ui  # noqa: E402
 
@@ -103,10 +104,13 @@ def about_page(frame: pd.DataFrame) -> None:
         )
     with right:
         st.markdown("##### :material/input: Les entrées du modèle")
-        st.markdown(
-            "Pays, État ou province, région, ville, secteur principal, année et mois de création. "
-            "Le financement est exclu : il n'est connu qu'après la création."
-        )
+        inputs = ", ".join(app_data.label(column) for column in features.FEATURE_COLUMNS)
+        st.markdown(f"{inputs}. Le financement est exclu : il n'est connu qu'après la création.")
+        if "founding_month" not in features.FEATURE_COLUMNS:
+            st.caption(
+                "Le mois de création reste décrit dans le dashboard mais n'entre pas dans le modèle : "
+                "il reflète surtout la précision des dates de Crunchbase."
+            )
         st.markdown("##### :material/warning: Les limites")
         st.markdown(
             "- Données historiques : le marché actuel peut être différent.\n"

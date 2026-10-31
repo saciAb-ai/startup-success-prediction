@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import app_data
+import features
 import models
 import ui
 
@@ -40,7 +41,7 @@ READING_GUIDE = """
 - La classe compare ce profil aux startups **historiques** de Crunchbase dont l'issue est connue.
 - Le score n'est **pas** une probabilité réelle de réussite future : les startups encore actives
   (operating) sont exclues et les données sont anciennes.
-- Seules 7 caractéristiques initiales sont utilisées (localisation, secteur, date de création) :
+- Seules les caractéristiques initiales du contrat sont utilisées (localisation, secteur, année de création) :
   financement, équipe ou produit ne sont pas pris en compte.
 - Les repères de taux de succès sont descriptifs : ils ne prouvent aucune causalité.
 """
@@ -68,7 +69,7 @@ def _default_year(frame: pd.DataFrame) -> int:
 
 
 def _profile_form(frame: pd.DataFrame) -> tuple[dict, list[str]]:
-    """Formulaire des 7 variables initiales ; listes filtrées selon les choix précédents."""
+    """Formulaire des variables d'entrée du modèle ; listes filtrées selon les choix précédents."""
     profile: dict = {}
     free_fields: list[str] = []
     with st.container(border=True):
@@ -105,13 +106,16 @@ def _profile_form(frame: pd.DataFrame) -> tuple[dict, list[str]]:
                 )
             )
         profile["founding_year"] = year
-        month = right.selectbox(
-            "Mois de création",
-            [UNKNOWN, *MONTHS],
-            key="profile_month",
-            help="Peu informatif : Crunchbase indique souvent janvier quand seule l'année est connue.",
-        )
-        profile["founding_month"] = None if month == UNKNOWN else MONTHS.index(month) + 1
+        if "founding_month" in features.FEATURE_COLUMNS:
+            month = right.selectbox(
+                "Mois de création",
+                [UNKNOWN, *MONTHS],
+                key="profile_month",
+                help="Peu informatif : Crunchbase indique souvent janvier quand seule l'année est connue.",
+            )
+            profile["founding_month"] = None if month == UNKNOWN else MONTHS.index(month) + 1
+    # Le profil suit le contrat du modèle : seulement les colonnes de features.FEATURE_COLUMNS.
+    profile = {name: value for name, value in profile.items() if name in features.FEATURE_COLUMNS}
     return profile, free_fields
 
 
@@ -158,7 +162,7 @@ def _profile_warnings(frame: pd.DataFrame, profile: dict, free_fields: list[str]
         )
     unknown = sum(value is None for value in profile.values())
     if unknown >= 4:
-        messages.append(f"{unknown} champs inconnus sur 7 : le résultat repose surtout sur des valeurs imputées.")
+        messages.append(f"{unknown} champs inconnus sur {len(profile)} : le résultat repose surtout sur des valeurs imputées.")
     return messages
 
 

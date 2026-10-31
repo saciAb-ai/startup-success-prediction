@@ -19,7 +19,7 @@ Autre emplacement : variable d'environnement `STARTUP_DATA_PATH`.
 | Page | Contenu |
 |---|---|
 | Dashboard EDA | 1. statistiques descriptives ; 2. valeurs manquantes ; 3. histogrammes + KDE ; 4. fréquences catégorielles ; 5. corrélations (Spearman/Pearson, V de Cramér) ; 6. filtres interactifs (issue, pays, secteur, années) |
-| Analyse de profil | formulaire des 7 variables initiales, classe prédite, score, repères historiques, avertissements |
+| Analyse de profil | formulaire des variables d'entrée du modèle (`features.FEATURE_COLUMNS`), classe prédite, score, repères historiques, avertissements |
 | À propos | question étudiée, cible, variables, limites |
 
 ## 3. Organisation du code

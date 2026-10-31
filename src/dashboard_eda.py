@@ -32,6 +32,7 @@ NOT_MODEL_INPUTS = {"funding_rounds", "funding_total_usd", app_data.FUNDING_LOG_
 CORRELATION_COLUMNS = ("founding_year", "founding_month", "funding_rounds", app_data.FUNDING_LOG_COLUMN, "target")
 ROLE_COLORS = {
     "Entrée du modèle": ui.ACCENT,
+    "Analyse seulement (exclue du modèle)": "#C9BEF7",
     "Brute (source d'une entrée)": "#A99BF2",
     "Sert uniquement à construire la cible": ui.INK,
     "Exclue du modèle (postérieure à la création)": "#8A94A6",
@@ -219,7 +220,7 @@ def _overview(data: pd.DataFrame) -> None:
         if share is not None:
             st.caption(
                 f"{app_data.fmt_pct(share)} des mois de création connus valent janvier : "
-                "Crunchbase ne connaît souvent que l'année."
+                "Crunchbase ne connaît souvent que l'année : l'équipe a donc exclu le mois des entrées du modèle."
             )
     with right:
         st.markdown("##### Variables texte")
