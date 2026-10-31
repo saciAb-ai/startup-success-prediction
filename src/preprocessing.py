@@ -16,7 +16,8 @@ Contenu du preprocesseur
   ``SimpleImputer`` avec la valeur "Inconnu" puis ``OneHotEncoder``.
   ``handle_unknown="ignore"`` evite un plantage sur une ville jamais vue
   (application Streamlit) et ``min_frequency`` regroupe les modalites rares.
-- Variables numeriques (annee et mois de creation) :
+- Variables numeriques (annee de creation ; le mois est exclu du protocole de
+  SA car c'est un artefact de precision de date) :
   ``SimpleImputer`` par la mediane puis, si ``scale=True``, ``StandardScaler``.
 
 Quel reglage pour quel modele ?
@@ -44,15 +45,38 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-# Contrat commun avec features.FEATURE_COLUMNS (verifie dans les tests).
-CATEGORICAL_FEATURES = (
+# Variables candidates, filtrees par le protocole de SA
+# (``splitting.INITIAL_FEATURES``) pour rester synchronisees si le protocole
+# evolue : si une variable est retiree cote SA, elle disparait ici aussi.
+KNOWN_CATEGORICAL_FEATURES = (
     "country_code",
     "state_code",
     "region",
     "city",
     "primary_category",
 )
-NUMERIC_FEATURES = ("founding_year", "founding_month")
+KNOWN_NUMERIC_FEATURES = ("founding_year", "founding_month")
+
+
+def _protocol_features() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Retourne les variables a traiter, alignees sur le protocole de SA."""
+    try:
+        from splitting import INITIAL_FEATURES  # import local (meme dossier src/)
+    except ImportError:  # protocole inaccessible : on garde toutes les candidates
+        return KNOWN_CATEGORICAL_FEATURES, KNOWN_NUMERIC_FEATURES
+
+    protocol = tuple(INITIAL_FEATURES)
+    categorical = tuple(name for name in KNOWN_CATEGORICAL_FEATURES if name in protocol)
+    numeric = tuple(name for name in KNOWN_NUMERIC_FEATURES if name in protocol)
+    unknown = sorted(set(protocol) - set(categorical) - set(numeric))
+    if unknown:
+        raise ValueError(
+            f"Variables du protocole non prises en charge par le preprocessing : {unknown}"
+        )
+    return categorical, numeric
+
+
+CATEGORICAL_FEATURES, NUMERIC_FEATURES = _protocol_features()
 FEATURE_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
 
 # Modalite explicite pour les valeurs manquantes : elle distingue "information
@@ -186,29 +210,6 @@ def feature_names_out(preprocessor: ColumnTransformer) -> list[str]:
     return [str(name) for name in preprocessor.get_feature_names_out()]
 
 
-def _check_contract_with_features() -> str:
-    """Verifie que les listes de variables correspondent a src/features.py.
-
-    Le controle est ignore si ``features.py`` n'est pas present (par exemple
-    sur une branche qui ne contient pas encore l'etape precedente).
-    """
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    try:
-        import features  # import local (meme dossier src/)
-    except ImportError:
-        return "Contrat non verifie : src/features.py absent de cette branche."
-
-    expected = tuple(features.FEATURE_COLUMNS)
-    if set(expected) != set(FEATURE_COLUMNS):
-        raise AssertionError(
-            "Contrat incoherent avec features.FEATURE_COLUMNS : "
-            f"attendu {expected}, obtenu {FEATURE_COLUMNS}"
-        )
-    return f"Contrat OK avec features.FEATURE_COLUMNS ({len(expected)} variables)."
-
-
 def _demo() -> None:
     """Test du module sans dataset Kaggle (donnees synthetiques)."""
     import numpy as np
@@ -236,12 +237,13 @@ def _demo() -> None:
 
     names = feature_names_out(plain)
     year_values = X_plain[:, names.index("num__founding_year")]
-    month_values = X_plain[:, names.index("num__founding_month")]
     # Les deux annees manquantes sont imputees par la mediane observee : 2010.5.
     assert (year_values == 2010.5).sum() == 2
-    assert (month_values == 6.0).sum() == 2  # mediane de [3, 5, 7, 9]
     # Sans standardisation, l'echelle d'origine est conservee.
     assert year_values.min() == 2008.0 and year_values.max() == 2012.0
+    # founding_month est calculee par features.build_features pour l'EDA mais
+    # hors protocole : meme presente dans X, elle ne doit pas etre encodee.
+    assert not [name for name in names if "founding_month" in name]
 
     # 2) Avec standardisation : moyenne ~ 0 et ecart-type ~ 1 sur le train.
     scaled = build_preprocessor(scale=True, min_frequency=None)
@@ -267,7 +269,8 @@ def _demo() -> None:
     assert imputer.statistics_[0] == 2010.5  # mediane de [2010, 2012, 2008]
 
     print("TEST OK : imputation, encodage, standardisation, modalite inconnue, Pipeline.")
-    print(_check_contract_with_features())
+    print(f"Variables categorieles traitees : {list(CATEGORICAL_FEATURES)}")
+    print(f"Variables numeriques traitees   : {list(NUMERIC_FEATURES)}")
     print(f"Colonnes produites (sans regroupement) : {len(names)}")
     print(f"Exemples de noms : {names[:3]} ... {names[-2:]}")
 
