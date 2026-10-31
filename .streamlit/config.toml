@@ -1,5 +1,28 @@
 [theme]
-primaryColor = "#0072B2"
+base = "light"
+primaryColor = "#5B3CC4"
+backgroundColor = "#F3F5F9"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#151B2E"
+linkColor = "#5B3CC4"
+borderColor = "#D9DFEA"
+showWidgetBorder = true
+baseRadius = "10px"
+font = "'IBM Plex Sans':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+headingFont = "Sora:https://fonts.googleapis.com/css2?family=Sora:wght@600;700&display=swap"
+
+[theme.sidebar]
+backgroundColor = "#151B2E"
+secondaryBackgroundColor = "#222A42"
+textColor = "#E8EBF2"
+primaryColor = "#7C68F2"
+borderColor = "#323B57"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+address = "localhost"
 
 [browser]
 gatherUsageStats = false

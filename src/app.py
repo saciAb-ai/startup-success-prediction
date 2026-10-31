@@ -4,8 +4,9 @@ Lancement depuis la racine du dépôt :
 
     streamlit run src/app.py
 
-Pages : Dashboard EDA (les 6 éléments exigés), Analyse de profil (pipeline
-final validé par l'équipe), À propos. L'application n'entraîne aucun modèle.
+Pages : Dashboard EDA (6 éléments exigés et une vue géographie), Analyse de
+profil (pipeline final validé par l'équipe), À propos. Aucun modèle n'est
+entraîné dans l'application.
 """
 
 from __future__ import annotations
@@ -25,12 +26,29 @@ import dashboard_eda  # noqa: E402
 import dashboard_prediction  # noqa: E402
 import data_loader  # noqa: E402
 import models  # noqa: E402
+import ui  # noqa: E402
 
 PAGE_EDA = "Dashboard EDA"
 PAGE_PREDICTION = "Analyse de profil"
 PAGE_ABOUT = "À propos"
+PAGES = (PAGE_EDA, PAGE_PREDICTION, PAGE_ABOUT)
+PAGE_ICONS = {
+    PAGE_EDA: ":material/monitoring:",
+    PAGE_PREDICTION: ":material/psychology:",
+    PAGE_ABOUT: ":material/info:",
+}
+PAGE_CAPTIONS = [
+    "Explorer les startups du dataset",
+    "Tester un profil avec le modèle final",
+    "Le projet, la cible et les limites",
+]
 
-st.set_page_config(page_title="Startups : succès ou échec ?", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="Exit ou fermeture ? Startups Crunchbase",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
 @st.cache_data(show_spinner="Chargement et préparation du dataset…")
@@ -47,45 +65,56 @@ def get_model(path: str, modified: float) -> models.LoadedModel:
 
 def dataset_missing_page() -> None:
     st.title("Dataset introuvable")
-    st.error("Aucun fichier CSV trouvé dans data/raw/, data/ ou à la racine du projet.")
-    st.markdown(
-        "1. Télécharger le dataset Kaggle « Startup Success/Fail Dataset from Crunchbase ».\n"
-        "2. Placer le fichier CSV directement dans `data/raw/` (dossier ignoré par Git).\n"
-        "3. Relancer : `streamlit run src/app.py`"
-    )
+    st.error("Aucun fichier CSV trouvé dans data/raw/, data/ ou à la racine du projet.", icon=":material/folder_off:")
+    with st.container(border=True):
+        st.markdown(
+            "1. Télécharger le dataset Kaggle « Startup Success/Fail Dataset from Crunchbase ».\n"
+            "2. Placer le fichier CSV directement dans `data/raw/` (dossier ignoré par Git).\n"
+            "3. Relancer : `streamlit run src/app.py`"
+        )
 
 
 def about_page(frame: pd.DataFrame) -> None:
     st.title("À propos du projet")
     st.markdown(
-        "**Question étudiée.** Parmi les startups historiques de Crunchbase ayant connu une "
-        "acquisition, une introduction en bourse ou une fermeture, peut-on distinguer leur "
-        "issue à partir de caractéristiques disponibles au début de leur activité ?"
-    )
-    st.markdown(
-        "| Statut Crunchbase | Cible | Lecture |\n"
-        "|---|:---:|---|\n"
-        "| `ipo` | 1 | succès observé (introduction en bourse) |\n"
-        "| `acquired` | 1 | succès observé (acquisition) |\n"
-        "| `closed` | 0 | échec observé (fermeture) |\n"
-        "| `operating` | exclu | issue non déterminée |"
+        "Parmi les startups historiques de Crunchbase ayant connu une acquisition, une introduction "
+        "en bourse ou une fermeture, peut-on distinguer leur issue à partir de caractéristiques "
+        "disponibles au début de leur activité ?"
     )
     known = app_data.modeling_rows(frame)
-    st.markdown(
-        f"**Fichier chargé :** {app_data.fmt_int(len(frame))} startups, dont "
-        f"{app_data.fmt_int(len(known))} avec une issue connue "
-        f"({app_data.fmt_pct(app_data.base_rate(frame))} en classe 1)."
+    facts = (
+        (":material/database: Startups dans le fichier", app_data.fmt_int(len(frame))),
+        (":material/flag: Issue connue", app_data.fmt_int(len(known))),
+        (":material/trending_up: Taux de succès", app_data.fmt_pct(app_data.base_rate(frame))),
     )
-    st.markdown(
-        "**Entrées du modèle :** pays, État ou province, région, ville, secteur principal, "
-        "année et mois de création. Le financement est exclu : il est postérieur à la création."
-    )
-    st.markdown(
-        "**Limites :** données historiques ; startups encore actives exclues (biais de "
-        "sélection) ; aucune garantie de prédiction à horizon fixe ; corrélation ne veut pas "
-        "dire causalité."
-    )
-    st.info(app_data.DISCLAIMER)
+    for column, (label, value) in zip(st.columns(3), facts):
+        with column.container(border=True):
+            st.metric(label, value)
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("##### :material/target: La cible")
+        st.markdown(
+            "| Statut Crunchbase | Cible | Lecture |\n"
+            "|---|:---:|---|\n"
+            "| `ipo` | 1 | sortie réussie (introduction en bourse) |\n"
+            "| `acquired` | 1 | sortie réussie (acquisition) |\n"
+            "| `closed` | 0 | fermeture |\n"
+            "| `operating` | exclu | issue non déterminée |"
+        )
+    with right:
+        st.markdown("##### :material/input: Les entrées du modèle")
+        st.markdown(
+            "Pays, État ou province, région, ville, secteur principal, année et mois de création. "
+            "Le financement est exclu : il n'est connu qu'après la création."
+        )
+        st.markdown("##### :material/warning: Les limites")
+        st.markdown(
+            "- Données historiques : le marché actuel peut être différent.\n"
+            "- Startups encore actives exclues : biais de sélection.\n"
+            "- Aucune garantie de prédiction à horizon fixe.\n"
+            "- Un lien statistique n'est pas une cause."
+        )
+    st.info(app_data.DISCLAIMER, icon=":material/info:")
     st.caption("Source : Kaggle, « Startup Success/Fail Dataset from Crunchbase ».")
 
 
@@ -101,8 +130,16 @@ def prediction_page(frame: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    st.sidebar.title("Startups : succès ou échec ?")
-    page = st.sidebar.radio("Navigation", (PAGE_EDA, PAGE_PREDICTION, PAGE_ABOUT), key="nav_page")
+    ui.apply_global_style()
+    ui.sidebar_brand()
+    page = st.sidebar.radio(
+        "Navigation",
+        PAGES,
+        key="nav_page",
+        captions=PAGE_CAPTIONS,
+        format_func=lambda name: f"{PAGE_ICONS[name]} {name}",
+        label_visibility="collapsed",
+    )
     st.sidebar.divider()
 
     dataset = app_data.find_dataset()
@@ -121,7 +158,10 @@ def main() -> None:
         prediction_page(frame)
     else:
         about_page(frame)
-    st.sidebar.caption("Outil exploratoire : pas une prédiction certaine de l'avenir d'une startup.")
+    st.sidebar.divider()
+    st.sidebar.caption(
+        "Outil exploratoire : il compare un profil à des startups passées, sans prédire l'avenir avec certitude."
+    )
 
 
 main()
