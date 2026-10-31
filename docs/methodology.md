@@ -61,7 +61,7 @@ Nous réalisons **une seule expérience de classification**, avec deux classes :
 | `city` | Colonne brute | Ville |
 | `primary_category` | Première catégorie de `category_list` | Secteur d'activité |
 | `founding_year` | Année extraite de `founded_at` | Année de création |
-| `founding_month` | Mois extrait de `founded_at` | Mois de création |
+| `` | Mois extrait de `founded_at` | Mois de création |
 
 Ces variables sont une **liste initiale à vérifier**. L'équipe doit contrôler les valeurs manquantes, les dates aberrantes, les catégories rares et la disponibilité des informations au moment auquel la prédiction est censée être faite.
 
