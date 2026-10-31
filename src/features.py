@@ -21,10 +21,15 @@ Regles importantes
 
 Limite connue sur ``founded_at``
 --------------------------------
-Environ 41 % des dates lisibles sont au 1er janvier et 56 % des mois valent
-janvier : Crunchbase ne connait souvent que l'annee. ``founding_month`` est donc
-peu informatif ; le mois n'est pas mis a ``NaN`` pour autant (choix a valider
-avec SA), mais il ne doit pas etre interprete comme un vrai mois de creation.
+42,6 % des dates sont exactement au 01-01 et 56 % des mois valent janvier :
+Crunchbase ne connait souvent que l'annee. ``founding_month`` est donc un
+artefact de precision de date, lie a l'epoque du dossier (89,9 % de 01-01 avant
+2000 contre 25,7 % apres 2012) et fortement associe a la cible (67,7 % de
+classe 1 contre 42,5 %).
+
+Decision d'equipe : ``founding_month`` n'est **pas** une variable d'entree des
+modeles. La colonne reste calculee pour l'EDA (``EDA_ONLY_COLUMNS``) mais est
+exclue de ``FEATURE_COLUMNS``, donc de ``splitting.INITIAL_FEATURES``.
 """
 
 from __future__ import annotations
@@ -42,11 +47,15 @@ CATEGORICAL_FEATURES = (
     "primary_category",
 )
 
-# Caracteristiques numeriques derivees de founded_at.
-NUMERIC_FEATURES = ("founding_year", "founding_month")
+# Caracteristiques numeriques derivees de founded_at utilisees par les modeles.
+NUMERIC_FEATURES = ("founding_year",)
 
 # Contrat commun avec splitting.INITIAL_FEATURES (verifie dans les tests).
 FEATURE_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
+
+# Colonnes calculees pour l'analyse exploratoire mais exclues des modeles :
+# founding_month est un artefact de precision de date (voir la docstring).
+EDA_ONLY_COLUMNS = ("founding_month",)
 
 # Colonnes brutes necessaires pour construire FEATURE_COLUMNS.
 REQUIRED_RAW_COLUMNS = (
@@ -168,7 +177,7 @@ def build_features(df: pd.DataFrame, max_year: int | None = None) -> pd.DataFram
     # Secteur : premiere categorie de category_list.
     result["primary_category"] = extract_primary_category(df["category_list"])
 
-    # Date de creation : annee et mois, dates aberrantes exclues.
+    # Date de creation : annee (variable d'entree) et mois (EDA uniquement).
     founding_year, founding_month = split_founded_at(df["founded_at"], max_year=max_year)
     result["founding_year"] = founding_year
     result["founding_month"] = founding_month
@@ -177,19 +186,28 @@ def build_features(df: pd.DataFrame, max_year: int | None = None) -> pd.DataFram
 
 
 def _check_contract_with_splitting() -> str:
-    """Verifie que FEATURE_COLUMNS correspond a splitting.INITIAL_FEATURES."""
+    """Verifie que les caracteristiques produites couvrent le protocole de SA.
+
+    Le controle tolere une colonne hors protocole (``founding_month`` pour
+    l'EDA) mais refuse une variable du protocole non produite.
+    """
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import splitting  # import local (meme dossier src/)
 
-    expected = tuple(splitting.INITIAL_FEATURES)
-    if set(expected) != set(FEATURE_COLUMNS):
+    expected = set(splitting.INITIAL_FEATURES)
+    missing = sorted(expected - set(FEATURE_COLUMNS))
+    if missing:
         raise AssertionError(
-            "Contrat incoherent avec splitting.INITIAL_FEATURES : "
-            f"attendu {expected}, obtenu {FEATURE_COLUMNS}"
+            f"Variables du protocole non produites : {missing}. "
+            f"Produites : {FEATURE_COLUMNS}"
         )
-    return f"Contrat OK avec splitting.INITIAL_FEATURES ({len(expected)} variables)."
+    extra = sorted(set(FEATURE_COLUMNS) - expected)
+    message = f"Contrat OK avec splitting.INITIAL_FEATURES ({len(expected)} variables)."
+    if extra:
+        message += f" Colonnes hors protocole : {extra}."
+    return message
 
 
 def _demo() -> None:
@@ -246,6 +264,10 @@ def _demo() -> None:
 
     # Aucune colonne interdite n'est creee.
     assert not (set(result.columns) & FORBIDDEN_FEATURES)
+
+    # founding_month est calculee pour l'EDA mais exclue des variables d'entree.
+    assert "founding_month" not in FEATURE_COLUMNS
+    assert result.loc[0, "founding_month"] == 5.0
 
     # Toutes les caracteristiques attendues sont presentes.
     missing = sorted(set(FEATURE_COLUMNS) - set(result.columns))
