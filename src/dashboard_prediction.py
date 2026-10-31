@@ -76,6 +76,8 @@ def _profile_form(frame: pd.DataFrame) -> tuple[dict, list[str]]:
         left, right = st.columns(2, gap="large")
         left.markdown("##### :material/location_on: Localisation")
         for column, label, depends_on in LOCATION_FIELDS:
+            if column not in features.FEATURE_COLUMNS:
+                continue
             constraints = {name: profile.get(name) for name in depends_on}
             options = app_data.observed_options(frame, column, constraints)
             profile[column], free = _choice(left, label, options, key=f"profile_{column}")
@@ -83,29 +85,31 @@ def _profile_form(frame: pd.DataFrame) -> tuple[dict, list[str]]:
                 free_fields.append(label)
 
         right.markdown("##### :material/rocket_launch: Activité et création")
-        profile["primary_category"], free = _choice(
-            right,
-            "Secteur principal",
-            app_data.observed_options(frame, "primary_category"),
-            key="profile_primary_category",
-            help_text="Première catégorie de category_list dans Crunchbase.",
-        )
-        if free:
-            free_fields.append("Secteur principal")
-
-        year = None
-        if not right.checkbox("Année de création inconnue", key="profile_year_unknown"):
-            year = int(
-                right.number_input(
-                    "Année de création",
-                    min_value=1900,
-                    max_value=CURRENT_YEAR,
-                    value=_default_year(frame),
-                    step=1,
-                    key="profile_year",
-                )
+        if "primary_category" in features.FEATURE_COLUMNS:
+            profile["primary_category"], free = _choice(
+                right,
+                "Secteur principal",
+                app_data.observed_options(frame, "primary_category"),
+                key="profile_primary_category",
+                help_text="Première catégorie de category_list dans Crunchbase.",
             )
-        profile["founding_year"] = year
+            if free:
+                free_fields.append("Secteur principal")
+
+        if "founding_year" in features.FEATURE_COLUMNS:
+            year = None
+            if not right.checkbox("Année de création inconnue", key="profile_year_unknown"):
+                year = int(
+                    right.number_input(
+                        "Année de création",
+                        min_value=1900,
+                        max_value=CURRENT_YEAR,
+                        value=_default_year(frame),
+                        step=1,
+                        key="profile_year",
+                    )
+                )
+            profile["founding_year"] = year
         if "founding_month" in features.FEATURE_COLUMNS:
             month = right.selectbox(
                 "Mois de création",
@@ -136,7 +140,7 @@ def _model_card(loaded: models.LoadedModel) -> None:
             }
         if numeric:
             st.dataframe(
-                pd.DataFrame({"métrique (jeu de test)": list(numeric), "valeur": list(numeric.values())}),
+                pd.DataFrame({"métrique (jeu de test)": list(numeric), "valeur": [ui.fr_number(value, 3) for value in numeric.values()]}),
                 hide_index=True,
             )
         else:
@@ -250,11 +254,11 @@ def _show_result(frame: pd.DataFrame, loaded: models.LoadedModel, profile: dict,
             )
         scope = [
             text
-            for text, value in (("même pays", profile["country_code"]), ("même secteur", profile["primary_category"]))
+            for text, value in (("même pays", profile.get("country_code")), ("même secteur", profile.get("primary_category")))
             if value
         ]
         if scope:
-            count, rate = app_data.similar_profiles(frame, profile["country_code"], profile["primary_category"])
+            count, rate = app_data.similar_profiles(frame, profile.get("country_code"), profile.get("primary_category"))
             with st.container(border=True):
                 st.metric(
                     f":material/compare_arrows: Comparables ({' + '.join(scope)})",

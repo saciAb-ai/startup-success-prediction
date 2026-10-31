@@ -41,6 +41,12 @@ ROLE_COLORS = {
 }
 CORRELATION_SCALE = [[0.0, "#0F766E"], [0.5, "#F4F4F6"], [1.0, ui.ACCENT]]
 ASSOCIATION_SCALE = [[0.0, "#F4F4F6"], [1.0, ui.ACCENT]]
+SHORT_ISSUES = {
+    app_data.LABEL_SUCCESS: "Succès",
+    app_data.LABEL_FAILURE: "Fermeture",
+    app_data.LABEL_EXCLUDED: "Actives (exclues)",
+    app_data.LABEL_UNKNOWN: "Statut inconnu",
+}
 TABS = (
     ":material/dashboard: Vue d'ensemble",
     ":material/rule: Valeurs manquantes",
@@ -89,6 +95,7 @@ def _sidebar_filters(frame: pd.DataFrame) -> pd.DataFrame:
         "Issue",
         [issue for issue in app_data.ISSUE_ORDER if issue in present],
         key="eda_issues",
+        format_func=lambda issue: SHORT_ISSUES.get(issue, issue),
         placeholder="Choisir une issue",
         help="Par défaut : les startups dont l'issue est connue (sortie réussie ou fermeture).",
     )
@@ -205,13 +212,15 @@ def _overview(data: pd.DataFrame) -> None:
     figure.update_layout(xaxis_title="Nombre de startups", yaxis={"title": "", "categoryorder": "total ascending"})
     ui.chart(figure, key="eda_issue_chart", height=120 + 52 * len(issues), legend=False)
 
-    left, right = st.columns([3, 2], gap="large")
+    # Tableaux l'un sous l'autre, en pleine largeur : aucune colonne n'est coupée.
+    left = st.container()
+    right = st.container()
     with left:
         st.markdown("##### Variables chiffrées")
         summary = app_data.numeric_summary(data, NUMERIC_VARIABLES)
         if not summary.empty:
             summary.index = [app_data.label(column) for column in summary.index]
-            st.dataframe(summary)
+            st.dataframe(ui.french_numbers(summary))
         st.caption(
             "Le financement est décrit ici mais exclu des entrées du modèle : "
             "il n'est connu qu'après la création."
@@ -231,7 +240,7 @@ def _overview(data: pd.DataFrame) -> None:
             hide_index=True,
             column_config={
                 "part_%": st.column_config.ProgressColumn(
-                    "Part de la plus fréquente (%)", min_value=0, max_value=100, format="%.1f"
+                    "Part de la plus fréquente (%)", min_value=0, max_value=100, format="%.0f"
                 )
             },
         )
@@ -263,7 +272,7 @@ def _missing_values(data: pd.DataFrame) -> None:
         table,
         hide_index=True,
         column_config={
-            "taux_%": st.column_config.ProgressColumn("Cases vides (%)", min_value=0, max_value=100, format="%.1f")
+            "taux_%": st.column_config.ProgressColumn("Cases vides (%)", min_value=0, max_value=100, format="%.0f")
         },
     )
 
@@ -324,7 +333,7 @@ def _distributions(data: pd.DataFrame) -> None:
                 )
     figure.update_layout(yaxis_title="Densité" if density else "Nombre de startups")
     ui.chart(figure, key="eda_distribution_chart", height=480)
-    st.dataframe(subset.groupby("issue")[column].describe().round(2))
+    st.dataframe(ui.french_numbers(subset.groupby("issue")[column].describe()))
     if column in NOT_MODEL_INPUTS:
         st.caption("Variable exclue des entrées du modèle (connue après la création) : affichée pour la description.")
     if column == "funding_total_usd":
@@ -381,7 +390,7 @@ def _categories(data: pd.DataFrame) -> None:
         table,
         column_config={
             "taux_succès_%": st.column_config.ProgressColumn(
-                "Taux de succès (%)", min_value=0, max_value=100, format="%.1f"
+                "Taux de succès (%)", min_value=0, max_value=100, format="%.0f"
             ),
             "total": st.column_config.NumberColumn("Total"),
             "issue_connue": st.column_config.NumberColumn("Issue connue"),

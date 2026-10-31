@@ -9,6 +9,8 @@ acquisition), vermillon = fermeture, violet = ce sur quoi on agit.
 from __future__ import annotations
 
 import html
+import math
+import numbers
 
 import streamlit as st
 
@@ -107,3 +109,26 @@ def style_figure(fig, height: int | None = None, legend: bool = True):
 def chart(fig, key: str, height: int | None = None, legend: bool = True) -> None:
     """Affiche une figure Plotly stylée et interactive (survol, zoom, export PNG)."""
     st.plotly_chart(style_figure(fig, height, legend), key=key, theme=None, config=PLOTLY_CONFIG)
+
+
+def fr_number(value, digits: int = 2):
+    """Nombre au format français pour l'affichage (2004,78 ; 13 334) ; texte inchangé.
+
+    Le séparateur de milliers n'apparaît qu'à partir de 10 000, pour ne pas
+    couper les années (2007 et non 2 007).
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return value
+    if math.isnan(value):
+        return "—"
+    grouping = "," if abs(value) >= 10_000 else ""
+    if float(value).is_integer():
+        text = format(int(value), f"{grouping}d")
+    else:
+        text = format(float(value), f"{grouping}.{digits}f")
+    return text.replace(",", "\u202f").replace(".", ",")
+
+
+def french_numbers(frame, digits: int = 2):
+    """Copie d'un tableau prête à afficher : nombres au format français, texte inchangé."""
+    return frame.map(lambda value: fr_number(value, digits))

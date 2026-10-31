@@ -18,7 +18,7 @@ Autre emplacement : variable d'environnement `STARTUP_DATA_PATH`.
 
 | Page | Contenu |
 |---|---|
-| Dashboard EDA | 1. statistiques descriptives ; 2. valeurs manquantes ; 3. histogrammes + KDE ; 4. fréquences catégorielles ; 5. corrélations (Spearman/Pearson, V de Cramér) ; 6. filtres interactifs (issue, pays, secteur, années) |
+| Dashboard EDA | 1. statistiques descriptives ; 2. valeurs manquantes ; 3. histogrammes + KDE ; 4. fréquences catégorielles ; 5. corrélations (Spearman/Pearson, V de Cramér) ; 6. filtres interactifs (issue, pays, secteur, années) ; en complément : carte du taux de succès par pays et tendance par année de création |
 | Analyse de profil | formulaire des variables d'entrée du modèle (`features.FEATURE_COLUMNS`), classe prédite, score, repères historiques, avertissements |
 | À propos | question étudiée, cible, variables, limites |
 
@@ -31,6 +31,8 @@ Autre emplacement : variable d'environnement `STARTUP_DATA_PATH`.
 | `src/dashboard_eda.py` | affichage du dashboard EDA |
 | `src/models.py` | contrat de chargement du pipeline final |
 | `src/dashboard_prediction.py` | page d'analyse de profil |
+| `src/ui.py` | thème des graphiques, blocs d'interface, format français des nombres |
+| `src/app_insights.py` | taux de succès par pays et par année de création (testé) |
 
 Modules de l'équipe réutilisés sans modification : `data_loader.py`, `features.py`,
 `targets.py`, `splitting.py`.
