@@ -13,6 +13,10 @@ KNN suit le meme protocole partage : pipeline ``scale=True`` (les distances
 dependent de l'echelle), recherche d'hyperparametres par validation croisee
 5 folds sur le train uniquement, puis une seule evaluation sur le test.
 
+L'arbre de decision suit le meme protocole avec ``scale=False`` (il est
+insensible a l'echelle) et une grille elargie (critere, profondeur,
+regularisation, ponderation des classes).
+
 Ce module ne reimplemente rien : chargement, caracteristiques, cible,
 decoupage, pretraitement et metriques viennent des modules partages
 (``data_loader``, ``features``, ``targets``, ``splitting``, ``preprocessing``,
@@ -36,8 +40,10 @@ if str(SRC_DIR) not in sys.path:
 
 import numpy as np
 from sklearn.dummy import DummyClassifier
+from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
 
 import data_loader
 import features
@@ -73,6 +79,20 @@ KNN_PARAM_GRID = {
 }
 KNN_CV_FOLDS = 5
 KNN_SCORING = "balanced_accuracy"
+
+# Arbre de decision : grille 3 x 5 x 4 x 4 x 2 = 480 combinaisons, 5 folds.
+# Les profondeurs bornees et les seuils de feuille limitent le surapprentissage
+# des arbres profonds sur 306 colonnes one-hot. ``log_loss`` est conserve pour
+# repondre au protocole, meme si scikit-learn le traite comme ``entropy``.
+DECISION_TREE_PARAM_GRID = {
+    "model__criterion": ["gini", "entropy", "log_loss"],
+    "model__max_depth": [None, 5, 10, 20, 30],
+    "model__min_samples_split": [2, 5, 10, 20],
+    "model__min_samples_leaf": [1, 2, 5, 10],
+    "model__class_weight": [None, "balanced"],
+}
+DECISION_TREE_CV_FOLDS = 5
+DECISION_TREE_SCORING = "balanced_accuracy"
 
 
 def build_zero_r():
@@ -115,6 +135,42 @@ def tune_knn(X_train, y_train) -> GridSearchCV:
         scoring=KNN_SCORING,
         cv=StratifiedKFold(
             n_splits=KNN_CV_FOLDS,
+            shuffle=True,
+            random_state=RANDOM_STATE,
+        ),
+        n_jobs=-1,
+        refit=True,
+    )
+    search.fit(X_train, y_train)
+    return search
+
+
+def build_decision_tree():
+    """Retourne le Pipeline partage (pretraitement + arbre de decision).
+
+    ``scale=False`` : un arbre separe sur des seuils, il est insensible a
+    l'echelle des variables (voir docs/handoff_preprocessing.md).
+    ``random_state`` est fixe pour rendre l'arbre reproductible.
+    """
+    return preprocessing.build_pipeline(
+        DecisionTreeClassifier(random_state=RANDOM_STATE),
+        scale=False,
+    )
+
+
+def tune_decision_tree(X_train, y_train) -> GridSearchCV:
+    """Optimise l'arbre par validation croisee 5 folds sur le train seul.
+
+    Meme protocole que KNN : ``StratifiedKFold`` melange avec la graine
+    commune, score suivi = balanced accuracy (classes desequilibrees). Le
+    test n'est jamais transmis a cette fonction.
+    """
+    search = GridSearchCV(
+        estimator=build_decision_tree(),
+        param_grid=DECISION_TREE_PARAM_GRID,
+        scoring=DECISION_TREE_SCORING,
+        cv=StratifiedKFold(
+            n_splits=DECISION_TREE_CV_FOLDS,
             shuffle=True,
             random_state=RANDOM_STATE,
         ),
@@ -247,6 +303,54 @@ def run_knn(data) -> dict:
     }
 
 
+def run_decision_tree(data) -> dict:
+    """Entraine l'arbre sur le train, predit et evalue sur le test.
+
+    Sequence identique a KNN : decoupage partage -> verification du protocole
+    -> CV 5 folds sur le train -> reentrainement du meilleur pipeline sur tout
+    le train -> evaluation unique sur le test. La balanced accuracy
+    d'entrainement est aussi mesuree (train seul) pour analyser le
+    surapprentissage, sans jamais toucher au test pendant l'optimisation.
+    """
+    X_train, X_test, y_train, y_test = splitting.split_dataset(
+        data, random_state=RANDOM_STATE
+    )
+    _check_protocol(X_train)
+    _check_protocol(X_test)
+
+    search = tune_decision_tree(X_train, y_train)
+    model = search.best_estimator_
+
+    y_pred = np.asarray(model.predict(X_test))
+    metrics = evaluate_classifier(model, X_test, y_test)
+
+    tree = model.named_steps["model"]
+    best_index = int(search.best_index_)
+    best_params = {
+        key.replace("model__", ""): value
+        for key, value in search.best_params_.items()
+    }
+
+    return {
+        "model": model,
+        "search": search,
+        "best_params": best_params,
+        "cv_score": float(search.best_score_),
+        "cv_std": float(search.cv_results_["std_test_score"][best_index]),
+        "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
+        "depth": int(tree.get_depth()),
+        "n_leaves": int(tree.get_n_leaves()),
+        "features": list(X_train.columns),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "predicted_counts": {
+            int(label): int(count)
+            for label, count in zip(*np.unique(y_pred, return_counts=True))
+        },
+        "metrics": metrics,
+    }
+
+
 def _format_metric(value) -> str:
     if value is None:
         return "indisponible"
@@ -320,21 +424,82 @@ def print_knn_report(results: dict) -> None:
     print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
 
 
-def print_comparison(zero_results: dict, knn_results: dict) -> None:
-    """Compare les deux modeles sur le meme jeu de test."""
-    print("\n=== Comparaison Zero-R / KNN (jeu de test) ===")
-    print(f"{'Modele':<8}{'Accuracy':>11}{'Bal. acc.':>12}{'Macro F1':>11}{'ROC-AUC':>10}")
-    for name, results in (("Zero-R", zero_results), ("KNN", knn_results)):
+def print_decision_tree_report(results: dict) -> None:
+    """Affiche le reglage retenu, l'arbre et les metriques du Decision Tree."""
+    params = results["best_params"]
+    n_test = results["n_test"]
+
+    print("\n=== Modele ===")
+    print("Decision Tree : DecisionTreeClassifier (pipeline scale=False)")
+    print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
+    print(
+        "hyperparametres retenus (CV "
+        f"{DECISION_TREE_CV_FOLDS} folds, {DECISION_TREE_SCORING}) :"
+    )
+    for key in (
+        "criterion",
+        "max_depth",
+        "min_samples_split",
+        "min_samples_leaf",
+        "class_weight",
+    ):
+        print(f"  {key:<18} : {params.get(key)}")
+    print(f"profondeur / feuilles de l'arbre  : {results['depth']} / {results['n_leaves']}")
+    print(
+        f"balanced accuracy en CV (train)    : "
+        f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(f"balanced accuracy sur le train     : {results['train_score']:.4f}")
+    print(f"predictions sur le test             : {results['predicted_counts']}")
+
+    metrics = results["metrics"]
+    print(f"\n=== Metriques (jeu de test, {n_test} observations) ===")
+    for key, label in METRIC_LABELS:
+        print(f"{label:<32} {_format_metric(metrics.get(key))}")
+    print(f"{'ROC-AUC':<32} {_format_metric(metrics.get('roc_auc'))}")
+
+    matrix = metrics["confusion_matrix"]
+    print("\nMatrice de confusion (lignes = reel, colonnes = predit) :")
+    print("            pred 0   pred 1")
+    print(f"reel 0      {matrix[0][0]:>6}   {matrix[0][1]:>6}")
+    print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
+
+
+def print_comparison(models) -> None:
+    """Compare tous les modeles sur le meme jeu de test.
+
+    ``models`` est une sequence de couples ``(nom, resultats)``. Le premier
+    element sert de plancher de reference (Zero-R).
+    """
+    print("\n=== Comparaison des modeles (jeu de test) ===")
+    header = (
+        f"{'Modele':<15}{'Accuracy':>10}{'Bal. acc.':>11}"
+        f"{'Prec. macro':>13}{'Recall macro':>14}{'F1 macro':>10}{'ROC-AUC':>10}"
+    )
+    print(header)
+    for name, results in models:
         metrics = results["metrics"]
         print(
-            f"{name:<8}"
-            f"{metrics['accuracy']:>11.4f}"
-            f"{metrics['balanced_accuracy']:>12.4f}"
-            f"{metrics['f1_macro']:>11.4f}"
+            f"{name:<15}"
+            f"{metrics['accuracy']:>10.4f}"
+            f"{metrics['balanced_accuracy']:>11.4f}"
+            f"{metrics['precision_macro']:>13.4f}"
+            f"{metrics['recall_macro']:>14.4f}"
+            f"{metrics['f1_macro']:>10.4f}"
             f"{_format_metric(metrics['roc_auc']):>10}"
         )
-    gain = knn_results["metrics"]["balanced_accuracy"] - zero_results["metrics"]["balanced_accuracy"]
-    print(f"\nGain de balanced accuracy par rapport au plancher : {gain:+.4f}")
+
+    floor = models[0][0]
+    floor_metrics = models[0][1]["metrics"]
+    for name, results in models[1:]:
+        metrics = results["metrics"]
+        print(
+            f"\n{name} vs {floor} : "
+            f"accuracy {metrics['accuracy'] - floor_metrics['accuracy']:+.4f} | "
+            f"balanced accuracy {metrics['balanced_accuracy'] - floor_metrics['balanced_accuracy']:+.4f} | "
+            f"F1 macro {metrics['f1_macro'] - floor_metrics['f1_macro']:+.4f} | "
+            f"ROC-AUC {metrics['roc_auc'] - floor_metrics['roc_auc']:+.4f}"
+        )
 
 
 def main() -> int:
@@ -353,7 +518,16 @@ def main() -> int:
     knn_results = run_knn(data)
     print_knn_report(knn_results)
 
-    print_comparison(zero_results, knn_results)
+    tree_results = run_decision_tree(data)
+    print_decision_tree_report(tree_results)
+
+    print_comparison(
+        [
+            ("Zero-R", zero_results),
+            ("KNN", knn_results),
+            ("Decision Tree", tree_results),
+        ]
+    )
     return 0
 
 
