@@ -1,6 +1,6 @@
 """Separation train/test commune et reproductible.
 
-Projet : Prédiction du succès ou de l'échec des startups à partir de leurs caractéristiques initiales.
+Projet : Prediction du succes ou de l'echec des startups a partir de leurs caracteristiques initiales.
 
 Important : cette fonction attend les caracteristiques creees par l'equipe Data.
 Elle ne nettoie pas les donnees et ne doit pas apprendre de transformations.
@@ -14,7 +14,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 # Liste initiale a valider avec la personne en charge du preprocessing.
-# primary_category est derive de category_list ; founding_year/month de founded_at.
+# primary_category est derive de category_list ; founding_year de founded_at.
 INITIAL_FEATURES = (
     "country_code",
     "state_code",
@@ -22,7 +22,6 @@ INITIAL_FEATURES = (
     "city",
     "primary_category",
     "founding_year",
-    "founding_month",
 )
 
 # Variables interdites parmi les entrees de ce protocole initial.
@@ -84,13 +83,13 @@ def split_dataset(
             "Faire creer ces colonnes par l'etape de feature engineering."
         )
     if df.empty:
-        raise ValueError("Le DataFrame est vide.")
+        raise ValueError("The DataFrame is empty.")
     if df["target"].isna().any() or not df["target"].isin([0, 1]).all():
         raise ValueError("'target' doit contenir uniquement 0 et 1, sans valeur manquante.")
     counts = df["target"].value_counts()
     if set(counts.index) != {0, 1} or counts.min() < 2:
         raise ValueError("Les deux classes (0 et 1) doivent compter au moins 2 exemples chacune.")
-    
+
     X = df.loc[:, features].copy()
     y = df["target"].astype(int).copy()
     return train_test_split(

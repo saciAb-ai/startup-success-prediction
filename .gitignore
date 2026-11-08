@@ -19,3 +19,6 @@ venv/
 .DS_Store
 Thumbs.db
 
+
+# Donnees brutes (CSV Kaggle) - ne jamais committer
+data/raw/
