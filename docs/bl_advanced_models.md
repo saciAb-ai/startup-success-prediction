@@ -186,6 +186,7 @@ python -m pytest tests/test_train_advanced.py -q
 | `reports/bl_feature_importance.md` | Importance des variables (rapport) |
 | `reports/bl_robustness.json` | Robustesse multi-graines (donnees brutes) |
 | `reports/bl_robustness.md` | Robustesse multi-graines (rapport) |
+| `docs/bl_report_section.md` | Section de rapport prete a coller (francais, resultats reels) |
 
 ---
 
