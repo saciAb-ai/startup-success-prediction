@@ -48,6 +48,8 @@ Usage
     python src/train_advanced.py --run              # entraine et evalue
     python src/train_advanced.py --run --limit 3000 # test rapide
     python src/train_advanced.py --run --output reports/bl_advanced_results.json
+    python src/train_advanced.py --importance       # variables importantes (RF)
+    python src/train_advanced.py --robustness       # variation des folds
 """
 
 from __future__ import annotations
@@ -65,8 +67,9 @@ _SRC_DIR = Path(__file__).resolve().parent
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 
@@ -94,6 +97,13 @@ FEATURE_COLUMNS: tuple[str, ...] = tuple(splitting.INITIAL_FEATURES)
 
 DEFAULT_DATA_PATH = Path("data/raw/startup_data.csv")
 DEFAULT_MAX_YEAR: int = 2026
+
+# Resultats de reference (produits par --run) : ils contiennent les meilleurs
+# hyperparametres reutilises par --importance et --robustness.
+DEFAULT_RESULTS_PATH = Path("reports/bl_advanced_results.json")
+DEFAULT_IMPORTANCE_PATH = Path("reports/bl_feature_importance.json")
+DEFAULT_ROBUSTNESS_PATH = Path("reports/bl_robustness.json")
+DEFAULT_SEEDS: tuple[int, ...] = (0, 1, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +515,439 @@ def run_experiment(
 
 
 # ---------------------------------------------------------------------------
-# G. Restitution
+# G. Analyses complementaires (independantes de la revue de SA)
+# ---------------------------------------------------------------------------
+
+
+def build_pipeline_from_params(
+    model_name: str, params: Mapping[str, Any] | None = None
+) -> Pipeline:
+    """Reconstruit un ``Pipeline`` a partir de parametres eventuellement prefixes.
+
+    Les cles peuvent venir telles quelles de ``GridSearchCV.best_params_``
+    (prefixe ``model__``) ou du JSON de resultats : le prefixe est retire avant
+    d'appeler ``RandomForestClassifier`` / ``SVC``.
+
+    Parametres
+    ----------
+    model_name : str
+        ``"random_forest"`` ou ``"svm"``.
+    params : Mapping[str, Any] | None
+        Hyperparametres du modele. ``None`` = valeurs par defaut du module.
+
+    Retour
+    ------
+    Pipeline
+        Pipeline NON ENTRAINE, identique au protocole commun.
+    """
+    cleaned: dict[str, Any] = {}
+    for key, value in (params or {}).items():
+        cleaned[key.replace("model__", "")] = value
+
+    if model_name == "random_forest":
+        return build_random_forest_pipeline(**cleaned)
+    if model_name == "svm":
+        return build_svm_pipeline(**cleaned)
+    raise ValueError(
+        f"Modele inconnu : {model_name!r} (attendu : 'random_forest' ou 'svm')."
+    )
+
+
+def load_best_params(
+    path: str | Path = DEFAULT_RESULTS_PATH,
+) -> dict[str, dict[str, Any]]:
+    """Lit les meilleurs hyperparametres du JSON produit par ``--run``.
+
+    Retour
+    ------
+    dict[str, dict[str, Any]]
+        ``{"random_forest": {...}, "svm": {...}}``. Dictionnaire vide si le
+        fichier est absent : les analyses retombent alors sur les valeurs par
+        defaut du module.
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    models = payload.get("models", {})
+    return {
+        name: dict(model.get("best_params", {}))
+        for name, model in models.items()
+    }
+
+
+def _source_feature(column: str) -> str:
+    """Retrouve la variable d'origine d'une colonne one-hot.
+
+    Exemples : ``cat__city_Paris`` -> ``city`` ; ``num__founding_year`` ->
+    ``founding_year``. Les noms de variables contiennent des underscores, donc
+    on compare aux colonnes connues en commencant par les plus longues.
+    """
+    if column.startswith("num__"):
+        return column[len("num__"):]
+    body = column[len("cat__"):] if column.startswith("cat__") else column
+    for feature_name in sorted(FEATURE_COLUMNS, key=len, reverse=True):
+        if body == feature_name or body.startswith(feature_name + "_"):
+            return feature_name
+    return body
+
+
+def extract_feature_importances(
+    fitted_pipeline: Pipeline, top_n: int = 20
+) -> dict[str, Any]:
+    """Extrait l'importance des variables d'un Random Forest entraine.
+
+    Deux lectures sont fournies :
+
+    - ``top_columns`` : les ``top_n`` colonnes one-hot les plus importantes ;
+    - ``grouped_by_source`` : la somme des importances par variable d'origine
+      (les 6 variables du protocole), plus lisible qu'un classement de 300
+      modalites.
+
+    Limite methodologique
+    ---------------------
+    ``feature_importances_`` mesure la baisse d'impurete dans l'arbre. Cette
+    mesure favorise les variables a forte cardinalite (``city``, ``region``) :
+    elle decrit le modele, elle ne prouve pas une relation causale.
+    """
+    if top_n < 1:
+        raise ValueError("top_n doit valoir au moins 1.")
+
+    preprocessor = fitted_pipeline.named_steps["preprocessor"]
+    model = fitted_pipeline.named_steps["model"]
+    if not hasattr(model, "feature_importances_"):
+        raise TypeError(
+            "Ce modele n'expose pas feature_importances_ "
+            f"({type(model).__name__}). Utiliser un Random Forest."
+        )
+
+    names = preprocessing.feature_names_out(preprocessor)
+    values = np.asarray(model.feature_importances_, dtype=float)
+    if len(names) != len(values):
+        raise RuntimeError(
+            f"Incoherence : {len(names)} colonnes pour {len(values)} importances."
+        )
+
+    order = np.argsort(values)[::-1]
+    top_columns = [
+        {
+            "column": names[index],
+            "source_feature": _source_feature(names[index]),
+            "importance": float(values[index]),
+        }
+        for index in order[:top_n]
+    ]
+
+    grouped: dict[str, float] = {feature: 0.0 for feature in FEATURE_COLUMNS}
+    for name, value in zip(names, values):
+        source = _source_feature(name)
+        grouped[source] = grouped.get(source, 0.0) + float(value)
+    grouped_by_source = sorted(
+        (
+            {"source_feature": source, "importance": round(value, 6)}
+            for source, value in grouped.items()
+        ),
+        key=lambda row: row["importance"],
+        reverse=True,
+    )
+
+    return {
+        "n_columns": len(names),
+        "top_columns": top_columns,
+        "grouped_by_source": grouped_by_source,
+        "impurity_total": float(values.sum()),
+    }
+
+
+def run_importance(
+    path: str | Path = DEFAULT_DATA_PATH,
+    max_year: int = DEFAULT_MAX_YEAR,
+    limit: int | None = None,
+    results_path: str | Path = DEFAULT_RESULTS_PATH,
+    top_n: int = 20,
+) -> dict[str, Any]:
+    """Entraine le Random Forest sur le train et analyse ses importances.
+
+    Le jeu de test n'est PAS utilise : cette analyse est descriptive et ne doit
+    pas influencer le choix des hyperparametres.
+    """
+    check_protocol()
+    X_train, _X_test, y_train, _y_test, audit = load_dataset(
+        path=path, max_year=max_year, limit=limit
+    )
+    params = load_best_params(results_path).get("random_forest")
+    described = (
+        ", ".join(
+            f"{key.replace('model__', '')}={value}"
+            for key, value in params.items()
+        )
+        if params
+        else "parametres par defaut"
+    )
+    print(f"[importance] Random Forest ({described})", flush=True)
+    pipeline = build_pipeline_from_params("random_forest", params)
+    start = time.perf_counter()
+    pipeline.fit(X_train, y_train)
+    fit_seconds = time.perf_counter() - start
+    importance = extract_feature_importances(pipeline, top_n=top_n)
+    print(
+        f"[importance] termine en {fit_seconds:.1f}s | "
+        f"{importance['n_columns']} colonnes analysees",
+        flush=True,
+    )
+    return {
+        "protocol": {
+            "features": list(FEATURE_COLUMNS),
+            "excluded": list(features.EDA_ONLY_COLUMNS),
+            "min_frequency": MIN_FREQUENCY,
+            "scoring": SCORING,
+            "random_state": RANDOM_STATE,
+            "max_year": max_year,
+            "limit": limit,
+            "data_path": str(path),
+        },
+        "dataset": audit,
+        "used_best_params": params or {},
+        "fit_seconds": round(float(fit_seconds), 2),
+        "importance": importance,
+    }
+
+
+def compute_robustness(
+    model_name: str,
+    X: Any,
+    y: Any,
+    params: Mapping[str, Any] | None = None,
+    seeds: Sequence[int] = DEFAULT_SEEDS,
+    n_splits: int = CV_FOLDS,
+    scoring: str = SCORING,
+    n_jobs: int = 1,
+) -> dict[str, Any]:
+    """Mesure la variation du score quand le decoupage des folds change.
+
+    Le protocole n'est pas modifie : seules les graines de ``StratifiedKFold``
+    varient. Chaque graine rejoue donc la meme validation croisee 5 folds, ce
+    qui donne une idee de la stabilite du score (et non un intervalle de
+    confiance statistique).
+    """
+    if not seeds:
+        raise ValueError("Fournir au moins une graine.")
+    pipeline = build_pipeline_from_params(model_name, params)
+    rows: list[dict[str, Any]] = []
+    for seed in seeds:
+        cross_validation = build_cross_validation(
+            n_splits=n_splits, random_state=int(seed)
+        )
+        scores = cross_val_score(
+            pipeline,
+            X,
+            y,
+            cv=cross_validation,
+            scoring=scoring,
+            n_jobs=n_jobs,
+            error_score="raise",
+        )
+        rows.append(
+            {
+                "seed": int(seed),
+                "mean": float(scores.mean()),
+                "std": float(scores.std()),
+                "min": float(scores.min()),
+                "max": float(scores.max()),
+                "folds": [float(score) for score in scores],
+            }
+        )
+
+    means = [row["mean"] for row in rows]
+    return {
+        "model": model_name,
+        "params": {
+            key.replace("model__", ""): value
+            for key, value in (params or {}).items()
+        }
+        or "defaults",
+        "scoring": scoring,
+        "n_splits": int(n_splits),
+        "seeds": rows,
+        "overall_mean": float(np.mean(means)),
+        "overall_std": float(np.std(means)),
+        "overall_min": float(np.min(means)),
+        "overall_max": float(np.max(means)),
+    }
+
+
+def run_robustness(
+    path: str | Path = DEFAULT_DATA_PATH,
+    max_year: int = DEFAULT_MAX_YEAR,
+    limit: int | None = None,
+    models: Sequence[str] = ("random_forest", "svm"),
+    seeds: Sequence[int] = DEFAULT_SEEDS,
+    results_path: str | Path = DEFAULT_RESULTS_PATH,
+    rf_n_jobs: int = -1,
+    svm_n_jobs: int = 1,
+) -> dict[str, Any]:
+    """Rejoue la validation croisee sur le train avec plusieurs graines.
+
+    Le jeu de test n'est PAS utilise : la robustesse se mesure uniquement sur
+    le train, conformement au protocole.
+    """
+    check_protocol()
+    X_train, _X_test, y_train, _y_test, audit = load_dataset(
+        path=path, max_year=max_year, limit=limit
+    )
+    params_by_model = load_best_params(results_path)
+
+    payload: dict[str, Any] = {}
+    for model_name in models:
+        print(
+            f"[robustesse] {model_name} : {len(seeds)} graines x "
+            f"{CV_FOLDS} folds...",
+            flush=True,
+        )
+        start = time.perf_counter()
+        payload[model_name] = compute_robustness(
+            model_name,
+            X_train,
+            y_train,
+            params=params_by_model.get(model_name),
+            seeds=seeds,
+            n_jobs=rf_n_jobs if model_name == "random_forest" else svm_n_jobs,
+        )
+        elapsed = time.perf_counter() - start
+        payload[model_name]["fit_seconds"] = round(float(elapsed), 2)
+        print(
+            f"[robustesse] {model_name} termine en {elapsed:.1f}s | "
+            f"moyenne={payload[model_name]['overall_mean']:.4f} "
+            f"(min={payload[model_name]['overall_min']:.4f}, "
+            f"max={payload[model_name]['overall_max']:.4f})",
+            flush=True,
+        )
+
+    return {
+        "protocol": {
+            "features": list(FEATURE_COLUMNS),
+            "excluded": list(features.EDA_ONLY_COLUMNS),
+            "min_frequency": MIN_FREQUENCY,
+            "scoring": SCORING,
+            "cv_folds": CV_FOLDS,
+            "random_state": RANDOM_STATE,
+            "max_year": max_year,
+            "limit": limit,
+            "data_path": str(path),
+            "seeds": [int(seed) for seed in seeds],
+        },
+        "dataset": audit,
+        "models": payload,
+    }
+
+
+def format_importance_markdown(results: Mapping[str, Any]) -> str:
+    """Met en forme l'analyse des variables importantes du Random Forest."""
+    protocol = results["protocol"]
+    dataset = results["dataset"]
+    importance = results["importance"]
+    lines = [
+        "# Importance des variables - Random Forest",
+        "",
+        "## Protocole",
+        "",
+        f"- Variables : {', '.join(protocol['features'])}",
+        f"- Exclues : {', '.join(protocol['excluded'])} (EDA uniquement)",
+        f"- `min_frequency` : {protocol['min_frequency']}",
+        f"- Colonnes one-hot analysees : {importance['n_columns']}",
+        f"- Entrainement : {dataset['train_rows']} lignes (le test n'est pas utilise)",
+        "",
+        "## Importance par variable d'origine",
+        "",
+        "| Variable | Importance cumulee |",
+        "|---|---|",
+    ]
+    for row in importance["grouped_by_source"]:
+        lines.append(
+            f"| {row['source_feature']} | {row['importance']:.4f} |"
+        )
+    lines += [
+        "",
+        "## Principales modalites",
+        "",
+        "| Rang | Colonne | Variable | Importance |",
+        "|---|---|---|---|",
+    ]
+    for rank, row in enumerate(importance["top_columns"], start=1):
+        lines.append(
+            f"| {rank} | `{row['column']}` | {row['source_feature']} | "
+            f"{row['importance']:.4f} |"
+        )
+    lines += [
+        "",
+        "## Rappel methodologique",
+        "",
+        "- Le jeu de test n'est pas utilise : analyse descriptive sur le train.",
+        "- `feature_importances_` mesure la baisse d'impurete dans les arbres ; "
+        "elle favorise les variables a forte cardinalite (`city`, `region`).",
+        "- Ces importances decrivent le modele, elles ne prouvent pas une "
+        "relation causale entre la variable et l'issue de la startup.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def format_robustness_markdown(results: Mapping[str, Any]) -> str:
+    """Met en forme la variation des scores selon la graine des folds."""
+    protocol = results["protocol"]
+    dataset = results["dataset"]
+    lines = [
+        "# Robustesse des modeles avances (variation des folds)",
+        "",
+        "## Protocole",
+        "",
+        f"- Variables : {', '.join(protocol['features'])}",
+        f"- `min_frequency` : {protocol['min_frequency']}",
+        f"- Score : `{protocol['scoring']}`",
+        f"- Validation croisee : {protocol['cv_folds']} folds stratifies",
+        f"- Graines testees : {', '.join(str(seed) for seed in protocol['seeds'])}",
+        f"- Entrainement : {dataset['train_rows']} lignes (le test n'est pas utilise)",
+        "",
+        "## Resultats par graine",
+        "",
+        "| Modele | Graine | F1 macro moyen | Ecart-type | Min | Max |",
+        "|---|---|---|---|---|---|",
+    ]
+    for model_name, payload in results["models"].items():
+        for row in payload["seeds"]:
+            lines.append(
+                f"| {model_name} | {row['seed']} | {row['mean']:.4f} | "
+                f"{row['std']:.4f} | {row['min']:.4f} | {row['max']:.4f} |"
+            )
+    lines += [
+        "",
+        "## Synthese",
+        "",
+        "| Modele | Moyenne des graines | Ecart-type | Min | Max | Duree (s) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for model_name, payload in results["models"].items():
+        lines.append(
+            f"| {model_name} | {payload['overall_mean']:.4f} | "
+            f"{payload['overall_std']:.4f} | {payload['overall_min']:.4f} | "
+            f"{payload['overall_max']:.4f} | {payload['fit_seconds']:.1f} |"
+        )
+    lines += [
+        "",
+        "## Rappel methodologique",
+        "",
+        "- Seules les graines de decoupage changent ; les hyperparametres sont "
+        "ceux choisis par `--run` sur le train.",
+        "- Le jeu de test n'est pas utilise : la robustesse se mesure sur le train.",
+        "- L'ecart observe indique la stabilite du score, ce n'est pas un "
+        "intervalle de confiance statistique.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# H. Restitution
 # ---------------------------------------------------------------------------
 
 
@@ -564,20 +1006,31 @@ def format_markdown(results: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def save_results(results: Mapping[str, Any], output: str | Path) -> Path:
-    """Ecrit le JSON et le rapport Markdown a cote du chemin demande."""
+def save_report(
+    results: Mapping[str, Any],
+    output: str | Path,
+    formatter: Any = None,
+) -> Path:
+    """Ecrit un JSON et son rapport Markdown a cote du chemin demande."""
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        json.dumps(results, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(results, indent=2, ensure_ascii=False, default=str) + "\n",
+        encoding="utf-8",
     )
-    markdown = output.with_suffix(".md")
-    markdown.write_text(format_markdown(results), encoding="utf-8")
+    if formatter is not None:
+        markdown = output.with_suffix(".md")
+        markdown.write_text(formatter(results), encoding="utf-8")
     return output
 
 
+def save_results(results: Mapping[str, Any], output: str | Path) -> Path:
+    """Ecrit le JSON et le rapport Markdown des resultats principaux."""
+    return save_report(results, output, format_markdown)
+
+
 # ---------------------------------------------------------------------------
-# H. Point d'entree
+# I. Point d'entree
 # ---------------------------------------------------------------------------
 
 
@@ -597,14 +1050,68 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Point d'entree en ligne de commande."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", action="store_true", help="entrainer et evaluer")
+    parser.add_argument(
+        "--importance",
+        action="store_true",
+        help="analyse des variables importantes du Random Forest",
+    )
+    parser.add_argument(
+        "--robustness",
+        action="store_true",
+        help="variation des scores selon la graine des folds",
+    )
     parser.add_argument("--data", default=str(DEFAULT_DATA_PATH), help="CSV brut")
     parser.add_argument("--limit", type=int, default=None, help="sous-echantillon")
     parser.add_argument(
         "--only", choices=["both", "random_forest", "svm"], default="both"
     )
     parser.add_argument("--output", default=None, help="chemin du JSON de resultats")
+    parser.add_argument(
+        "--seeds",
+        default=",".join(str(seed) for seed in DEFAULT_SEEDS),
+        help="graines CV pour --robustness (ex. 0,1,2)",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="nombre de modalites affichees par --importance",
+    )
     parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.importance:
+        results = run_importance(
+            path=args.data,
+            limit=args.limit,
+            top_n=args.top,
+        )
+        print()
+        print(format_importance_markdown(results))
+        saved = save_report(
+            results,
+            args.output or DEFAULT_IMPORTANCE_PATH,
+            format_importance_markdown,
+        )
+        print(f"\nResultats ecrits dans : {saved}")
+        return 0
+
+    if args.robustness:
+        seeds = tuple(int(seed) for seed in args.seeds.split(",") if seed.strip())
+        results = run_robustness(
+            path=args.data,
+            limit=args.limit,
+            seeds=seeds,
+        )
+        print()
+        print(format_robustness_markdown(results))
+        saved = save_report(
+            results,
+            args.output or DEFAULT_ROBUSTNESS_PATH,
+            format_robustness_markdown,
+        )
+        print(f"\nResultats ecrits dans : {saved}")
+        return 0
 
     if not args.run:
         _print_configuration()

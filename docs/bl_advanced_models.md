@@ -2,7 +2,7 @@
 
 **Auteur :** `bl` (GitHub `bl7j`)
 **Fichier :** `src/train_advanced.py`
-**Tests :** `tests/test_train_advanced.py` (11 tests)
+**Tests :** `tests/test_train_advanced.py` (21 tests)
 **Statut :** Draft PR #2 - <https://github.com/saciAb-ai/startup-success-prediction/pull/2>
 
 ---
@@ -106,6 +106,48 @@ Lecture :
   secteur, annee) decrivent mal une issue future. C'est une limite du jeu de
   donnees, pas seulement des modeles.
 
+### 4.1 Importance des variables (Random Forest)
+
+Entrainement sur le train seul (10 503 lignes), 300 colonnes one-hot, duree
+10,9 s. Importance cumulee par variable d'origine :
+
+| Variable | Importance |
+|---|---|
+| `founding_year` | 0,2696 |
+| `primary_category` | 0,2258 |
+| `country_code` | 0,1334 |
+| `city` | 0,1262 |
+| `region` | 0,1244 |
+| `state_code` | 0,1206 |
+
+Les modalites dominantes sont `num__founding_year` (0,2696), puis les
+modalites "Inconnu" de `city`, `country_code` et `primary_category` (environ
+0,04 a 0,05 chacune).
+
+Lecture : l'annee de creation et le secteur portent l'essentiel du signal ;
+la geographie se partage le reste. Les modalites "Inconnu" ressortent parce
+que l'absence d'information est elle-meme correlee a l'issue dans ce jeu de
+donnees.
+
+Attention : `feature_importances_` mesure la baisse d'impurete et favorise les
+variables a forte cardinalite. Ces valeurs decrivent le modele, pas une
+relation causale.
+
+### 4.2 Robustesse (variation de la graine des folds)
+
+Meme protocole, seules les graines de `StratifiedKFold` changent (0, 1, 2) ;
+le jeu de test n'est pas utilise.
+
+| Modele | Moyenne des 3 graines | Ecart-type | Min | Max | Duree |
+|---|---|---|---|---|---|
+| Random Forest | 0,6980 | 0,0021 | 0,6953 | 0,7003 | 41,3 s |
+| SVM | 0,6977 | 0,0010 | 0,6967 | 0,6991 | 349,0 s |
+
+Lecture : les scores sont **stables** (variation inferieure a 0,01), donc le
+classement RF / SVM ne depend pas du decoupage. L'ecart-type des moyennes
+n'est pas un intervalle de confiance statistique.
+
+
 ---
 
 ## 5. Reproduire
@@ -120,6 +162,12 @@ python src/train_advanced.py --run --limit 1500
 # Experience complete (environ 11 minutes)
 python src/train_advanced.py --run --output reports/bl_advanced_results.json
 
+# Importance des variables du Random Forest (environ 11 secondes)
+python src/train_advanced.py --importance
+
+# Robustesse : 3 graines x 5 folds (environ 6,5 minutes)
+python src/train_advanced.py --robustness --seeds 0,1,2
+
 # Tests unitaires
 python -m pytest tests/test_train_advanced.py -q
 ```
@@ -130,16 +178,22 @@ python -m pytest tests/test_train_advanced.py -q
 
 | Fichier | Role |
 |---|---|
-| `src/train_advanced.py` | Pipelines, grilles, CV, chargement, evaluation |
-| `tests/test_train_advanced.py` | 11 tests (protocole, pipelines, grilles, bout en bout) |
+| `src/train_advanced.py` | Pipelines, grilles, CV, chargement, evaluation, importance, robustesse |
+| `tests/test_train_advanced.py` | 21 tests (protocole, pipelines, grilles, analyses, bout en bout) |
 | `reports/bl_advanced_results.json` | Resultats detailles et reproductibles |
 | `reports/bl_advanced_results.md` | Tableau de resultats |
+| `reports/bl_feature_importance.json` | Importance des variables (donnees brutes) |
+| `reports/bl_feature_importance.md` | Importance des variables (rapport) |
+| `reports/bl_robustness.json` | Robustesse multi-graines (donnees brutes) |
+| `reports/bl_robustness.md` | Robustesse multi-graines (rapport) |
 
 ---
 
 ## 7. Limites
 
-1. Une seule graine (`random_state=42`) : pas d'intervalle de confiance.
+1. Une seule graine pour le choix des hyperparametres (`random_state=42`) ; la
+   robustesse est mesuree a part sur 3 graines de decoupage, ce qui ne
+   constitue pas un intervalle de confiance.
 2. Noyaux SVM polynomiaux non explores.
 3. SVM sans probabilites calibrees ; le ROC-AUC utilise `decision_function`.
 4. Les scores ne sont pas des probabilites de succes futur.
