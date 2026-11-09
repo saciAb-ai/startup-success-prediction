@@ -4,7 +4,7 @@
 > Toutes les valeurs proviennent des exécutions réelles sur
 > `data/raw/startup_data.csv` (version actuelle de `main`, filtrée sans ISR).
 > Les résultats détaillés sont dans `reports/` et la note technique dans
-> `docs/bl_advanced_models.md`.
+> `docs/advanced_models.md`.
 
 ---
 
@@ -240,7 +240,7 @@ toujours sur le train :
 python src/train_advanced.py
 
 # Expérience complète (environ 11 minutes)
-python src/train_advanced.py --run --output reports/bl_advanced_results.json
+python src/train_advanced.py --run --output reports/advanced_models_results.json
 
 # Importance des variables (environ 11 secondes)
 python src/train_advanced.py --importance
@@ -258,10 +258,10 @@ Fichiers produits :
 |---|---|
 | `src/train_advanced.py` | Pipelines, grilles, CV, évaluation, importance, robustesse |
 | `tests/test_train_advanced.py` | 24 tests |
-| `reports/bl_advanced_results.json` / `.md` | Résultats principaux |
-| `reports/bl_feature_importance.json` / `.md` | Importance des variables |
-| `reports/bl_robustness.json` / `.md` | Robustesse multi-graines |
-| `docs/bl_advanced_models.md` | Note technique complète |
+| `reports/advanced_models_results.json` / `.md` | Résultats principaux |
+| `reports/feature_importance.json` / `.md` | Importance des variables |
+| `reports/robustness.json` / `.md` | Robustesse multi-graines |
+| `docs/advanced_models.md` | Note technique complète |
 
 ---
 
@@ -274,7 +274,7 @@ Fichiers produits :
 | `f6c3cd1` | Alignement sur le protocole commun (6 variables, `build_pipeline`, `min_frequency=20`) et premiers résultats réels |
 | `06492ce` | 11 tests unitaires et note de synthèse |
 | `ce3e72e` | Importance des variables, robustesse multi-graines, 21 tests au total |
-| `ee301ca` | Section de rapport prête à coller (`docs/bl_report_section.md`) |
+| `ee301ca` | Section de rapport prête à coller (`docs/advanced_models_report_section.md`) |
 
 La **PR #2** a été fusionnée dans `main` en **merge commit** (`41793f0`), sans
 squash : les commits restent attribués à `bl7j`. Aucun fichier des autres
@@ -289,7 +289,7 @@ de confusion (24 tests au total).
 Fusion effectuée le 8 novembre 2026 (`main` : `bd8a0cb` → `41793f0`) :
 
 - [x] `main` contient `src/train_advanced.py`, `tests/test_train_advanced.py`,
-      `docs/bl_advanced_models.md`, `docs/bl_report_section.md` et `reports/`.
+      `docs/advanced_models.md`, `docs/advanced_models_report_section.md` et `reports/`.
 - [x] Les commits `11e6645`, `66cc95f`, `f6c3cd1`, `06492ce`, `ce3e72e`,
       `ee301ca` apparaissent dans l'historique de `main`.
 - [x] Le profil GitHub `bl7j` apparaît dans les contributeurs du dépôt.

@@ -4,8 +4,8 @@
 > Toutes les valeurs proviennent des exécutions réelles du module
 > `src/train_advanced.py` sur `data/raw/startup_data.csv` (version actuelle de
 > `main`, filtrée sans les startups `operating`).
-> Détails : `docs/bl_advanced_models.md`, `docs/bl_report_section.md`,
-> `reports/bl_advanced_results.json`.
+> Détails : `docs/advanced_models.md`, `docs/advanced_models_report_section.md`,
+> `reports/advanced_models_results.json`.
 
 ---
 
