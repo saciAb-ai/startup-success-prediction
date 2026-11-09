@@ -34,7 +34,11 @@ Usage :
 
 from __future__ import annotations
 
+import json
+import platform
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Le projet utilise des imports "plats" (import features, import splitting...).
@@ -111,6 +115,9 @@ DECISION_TREE_PARAM_GRID = {
 NAIVE_BAYES_PARAM_GRID = {
     "model__var_smoothing": [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5],
 }
+
+# Rapport machine-readable demande par SA (best_params, CV, test, versions).
+RESULTS_PATH = PROJECT_ROOT / "reports" / "cs23_classical_results.json"
 
 
 def _cv_splitter() -> StratifiedKFold:
@@ -338,7 +345,9 @@ def run_knn(data) -> dict:
     _check_protocol(X_train)
     _check_protocol(X_test)
 
+    started = time.perf_counter()
     search = tune_knn(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
     model = search.best_estimator_
 
     y_pred = np.asarray(model.predict(X_test))
@@ -360,6 +369,8 @@ def run_knn(data) -> dict:
         "cv_std": cv_std,
         "cv_balanced_accuracy": bal_mean,
         "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
         "features": list(X_train.columns),
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
@@ -386,7 +397,9 @@ def run_decision_tree(data) -> dict:
     _check_protocol(X_train)
     _check_protocol(X_test)
 
+    started = time.perf_counter()
     search = tune_decision_tree(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
     model = search.best_estimator_
 
     y_pred = np.asarray(model.predict(X_test))
@@ -408,6 +421,8 @@ def run_decision_tree(data) -> dict:
         "cv_std": float(search.cv_results_["std_test_score"][best_index]),
         "cv_balanced_accuracy": bal_mean,
         "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
         "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
         "depth": int(tree.get_depth()),
         "n_leaves": int(tree.get_n_leaves()),
@@ -436,7 +451,9 @@ def run_naive_bayes(data) -> dict:
     _check_protocol(X_train)
     _check_protocol(X_test)
 
+    started = time.perf_counter()
     search = tune_naive_bayes(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
     model = search.best_estimator_
 
     y_pred = np.asarray(model.predict(X_test))
@@ -457,6 +474,8 @@ def run_naive_bayes(data) -> dict:
         "cv_std": float(search.cv_results_["std_test_score"][best_index]),
         "cv_balanced_accuracy": bal_mean,
         "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
         "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
         "features": list(X_train.columns),
         "n_train": int(len(X_train)),
@@ -628,6 +647,77 @@ def print_naive_bayes_report(results: dict) -> None:
     print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
 
 
+def export_results_json(models: dict, data, path: Path = RESULTS_PATH) -> Path:
+    """Ecrit le rapport machine-readable demande par SA.
+
+    Contient le protocole, les effectifs, les hyperparametres retenus, les
+    scores de validation croisee, les metriques de test et les versions des
+    bibliotheques. Aucune identite personnelle : le code etudiant ``CS23``
+    suffit.
+    """
+    import joblib
+    import pandas as pd
+    import sklearn
+
+    _, _, y_train, _ = splitting.split_dataset(data, random_state=RANDOM_STATE)
+    payload = {
+        "generated_by": "CS23",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "protocol": {
+            "data_path": "data/raw/startup_data.csv",
+            "features": list(splitting.INITIAL_FEATURES),
+            "excluded": ["founding_month"],
+            "scoring": CV_SCORING,
+            "secondary_scoring": CV_SECONDARY_SCORING,
+            "cv_folds": CV_FOLDS,
+            "test_size": 0.20,
+            "random_state": RANDOM_STATE,
+            "max_year": MAX_YEAR,
+            "scale": {
+                "zero_r": False,
+                "knn": True,
+                "decision_tree": False,
+                "naive_bayes": False,
+            },
+        },
+        "dataset": {
+            "raw_rows": int(len(data_loader.load_raw(DATASET_PATH))),
+            "kept_rows": int(len(data)),
+            "train_rows": int(models["zero_r"]["n_train"]),
+            "test_rows": int(models["zero_r"]["n_test"]),
+            "positive_share_train": float(y_train.mean()),
+        },
+        "versions": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+            "scikit-learn": sklearn.__version__,
+            "joblib": joblib.__version__,
+        },
+        "models": {
+            name: {
+                "best_params": results.get("best_params", {}),
+                "cv_score": results.get("cv_score"),
+                "cv_std": results.get("cv_std"),
+                "cv_balanced_accuracy": results.get("cv_balanced_accuracy"),
+                "cv_balanced_std": results.get("cv_balanced_std"),
+                "n_configurations": results.get("n_configurations"),
+                "tune_seconds": results.get("tune_seconds"),
+                "n_train": results.get("n_train"),
+                "n_test": results.get("n_test"),
+                "test": results["metrics"],
+            }
+            for name, results in models.items()
+        },
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return path
+
+
 def print_comparison(models) -> None:
     """Compare tous les modeles sur le meme jeu de test.
 
@@ -695,6 +785,17 @@ def main() -> int:
             ("Naive Bayes", nb_results),
         ]
     )
+
+    report_path = export_results_json(
+        {
+            "zero_r": zero_results,
+            "knn": knn_results,
+            "decision_tree": tree_results,
+            "naive_bayes": nb_results,
+        },
+        data,
+    )
+    print(f"\nRapport JSON : {report_path}")
     return 0
 
 
