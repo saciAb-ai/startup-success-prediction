@@ -339,3 +339,83 @@ def test_markdown_formatters_expose_the_main_sections() -> None:
     robustness_md = ta.format_robustness_markdown(robust)
     assert "Robustesse" in robustness_md
     assert "random_forest" in robustness_md
+
+
+# ---------------------------------------------------------------------------
+# Restitution : metriques par classe et matrices de confusion
+# ---------------------------------------------------------------------------
+
+
+def _results_with_confusion(confusion: list[list[int]]) -> dict:
+    """Resultats minimaux contenant une matrice de confusion 2x2."""
+    return {
+        "protocol": {
+            "features": list(ta.FEATURE_COLUMNS),
+            "excluded": list(ta.features.EDA_ONLY_COLUMNS),
+            "min_frequency": ta.MIN_FREQUENCY,
+            "scoring": ta.SCORING,
+            "cv_folds": ta.CV_FOLDS,
+        },
+        "dataset": {
+            "raw_rows": 10,
+            "kept_rows": 8,
+            "train_rows": 6,
+            "test_rows": 4,
+            "positive_share": 0.5,
+        },
+        "models": {
+            "random_forest": {
+                "best_params": {"model__n_estimators": 200},
+                "best_cv_score": 0.69,
+                "fit_seconds": 1.0,
+                "test": {
+                    "accuracy": 0.70,
+                    "balanced_accuracy": 0.69,
+                    "precision_macro": 0.70,
+                    "recall_macro": 0.69,
+                    "f1_macro": 0.69,
+                    "precision_fermeture": 0.69,
+                    "recall_fermeture": 0.65,
+                    "f1_fermeture": 0.67,
+                    "confusion_matrix": confusion,
+                    "roc_auc": 0.77,
+                },
+            }
+        },
+    }
+
+
+def test_class_metrics_from_confusion_match_the_stored_closure_metrics() -> None:
+    """La derivation retrouve exactement les mesures stockees pour la classe 0."""
+    matrix = [[797, 435], [350, 1044]]
+    per_class = ta._class_metrics_from_confusion(matrix)
+
+    assert per_class[0]["precision"] == pytest.approx(0.6948561464690497)
+    assert per_class[0]["recall"] == pytest.approx(0.6469155844155844)
+    assert per_class[0]["f1"] == pytest.approx(0.6700294241277848)
+    assert per_class[0]["support"] == 1232
+    assert per_class[1]["support"] == 1394
+    # Macro = moyenne non ponderee des deux classes.
+    macro_precision = (per_class[0]["precision"] + per_class[1]["precision"]) / 2
+    assert macro_precision == pytest.approx(0.700369249705113)
+
+
+def test_class_metrics_from_confusion_rejects_a_non_2x2_matrix() -> None:
+    with pytest.raises(ValueError):
+        ta._class_metrics_from_confusion([[1, 2, 3], [4, 5, 6]])
+
+
+def test_format_markdown_includes_per_class_metrics_and_confusion() -> None:
+    md = ta.format_markdown(_results_with_confusion([[797, 435], [350, 1044]]))
+
+    assert "## Metriques par classe (jeu de test)" in md
+    assert "## Matrices de confusion (jeu de test)" in md
+    # Metriques derivees de la matrice, pas presentes telles quelles dans le JSON.
+    for expected in ("0.6949", "0.6469", "0.6700", "0.7059", "0.7489", "0.7268"):
+        assert expected in md
+    # Matrice affichee en clair.
+    for expected in ("| 797 |", "| 435 |", "| 350 |", "| 1044 |"):
+        assert expected in md
+    assert "0 (fermeture)" in md
+    assert "1 (IPO ou acquisition)" in md
+
