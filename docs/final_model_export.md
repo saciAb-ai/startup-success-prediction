@@ -27,7 +27,7 @@ argument. Il ne committe rien : l'écriture se fait localement.
 2. Les résultats de `--run` doivent exister :
 
    ```bash
-   python src/train_advanced.py --run --output reports/bl_advanced_results.json
+   python src/train_advanced.py --run --output reports/advanced_models_results.json
    ```
 
    Le script y lit les meilleurs hyperparamètres **et** les métriques de test
@@ -100,7 +100,7 @@ Le script :
 ```
 
 La matrice de confusion est volontairement exclue des métadonnées : elle reste
-dans `reports/bl_advanced_results.json` et dans le rapport.
+dans `reports/advanced_models_results.json` et dans le rapport.
 
 ---
 

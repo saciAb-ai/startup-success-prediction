@@ -47,7 +47,7 @@ Usage
     python src/train_advanced.py                    # affiche la configuration
     python src/train_advanced.py --run              # entraine et evalue
     python src/train_advanced.py --run --limit 3000 # test rapide
-    python src/train_advanced.py --run --output reports/bl_advanced_results.json
+    python src/train_advanced.py --run --output reports/advanced_models_results.json
     python src/train_advanced.py --importance       # variables importantes (RF)
     python src/train_advanced.py --robustness       # variation des folds
 """
@@ -100,9 +100,9 @@ DEFAULT_MAX_YEAR: int = 2026
 
 # Resultats de reference (produits par --run) : ils contiennent les meilleurs
 # hyperparametres reutilises par --importance et --robustness.
-DEFAULT_RESULTS_PATH = Path("reports/bl_advanced_results.json")
-DEFAULT_IMPORTANCE_PATH = Path("reports/bl_feature_importance.json")
-DEFAULT_ROBUSTNESS_PATH = Path("reports/bl_robustness.json")
+DEFAULT_RESULTS_PATH = Path("reports/advanced_models_results.json")
+DEFAULT_IMPORTANCE_PATH = Path("reports/feature_importance.json")
+DEFAULT_ROBUSTNESS_PATH = Path("reports/robustness.json")
 DEFAULT_SEEDS: tuple[int, ...] = (0, 1, 2)
 
 

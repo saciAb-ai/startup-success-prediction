@@ -31,7 +31,7 @@ Usage
     python src/export_final_model.py --model random_forest --output /tmp/final.joblib
 
 Le jeu de test n'est PAS utilise : les metriques de test sont relues dans
-``reports/bl_advanced_results.json`` (deja produites par ``--run``). Le script
+``reports/advanced_models_results.json`` (deja produites par ``--run``). Le script
 n'entraine donc que sur le train, conformement au protocole.
 """
 
@@ -74,13 +74,13 @@ def load_recorded_results(
     ----
     FileNotFoundError
         Si le JSON est absent : lancer d'abord
-        ``python src/train_advanced.py --run --output reports/bl_advanced_results.json``.
+        ``python src/train_advanced.py --run --output reports/advanced_models_results.json``.
     """
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(
             f"Resultats introuvables : {path}. Lancer d'abord "
-            "python src/train_advanced.py --run --output reports/bl_advanced_results.json"
+            "python src/train_advanced.py --run --output reports/advanced_models_results.json"
         )
     payload = json.loads(path.read_text(encoding="utf-8"))
     return dict(payload.get("models", {}))

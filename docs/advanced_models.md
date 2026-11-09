@@ -160,7 +160,7 @@ python src/train_advanced.py
 python src/train_advanced.py --run --limit 1500
 
 # Experience complete (environ 11 minutes)
-python src/train_advanced.py --run --output reports/bl_advanced_results.json
+python src/train_advanced.py --run --output reports/advanced_models_results.json
 
 # Importance des variables du Random Forest (environ 11 secondes)
 python src/train_advanced.py --importance
@@ -180,13 +180,13 @@ python -m pytest tests/test_train_advanced.py -q
 |---|---|
 | `src/train_advanced.py` | Pipelines, grilles, CV, chargement, evaluation, importance, robustesse |
 | `tests/test_train_advanced.py` | 24 tests (protocole, pipelines, grilles, analyses, bout en bout) |
-| `reports/bl_advanced_results.json` | Resultats detailles et reproductibles |
-| `reports/bl_advanced_results.md` | Performances macro, metriques par classe et matrices de confusion |
-| `reports/bl_feature_importance.json` | Importance des variables (donnees brutes) |
-| `reports/bl_feature_importance.md` | Importance des variables (rapport) |
-| `reports/bl_robustness.json` | Robustesse multi-graines (donnees brutes) |
-| `reports/bl_robustness.md` | Robustesse multi-graines (rapport) |
-| `docs/bl_report_section.md` | Section de rapport prete a coller (francais, resultats reels) |
+| `reports/advanced_models_results.json` | Resultats detailles et reproductibles |
+| `reports/advanced_models_results.md` | Performances macro, metriques par classe et matrices de confusion |
+| `reports/feature_importance.json` | Importance des variables (donnees brutes) |
+| `reports/feature_importance.md` | Importance des variables (rapport) |
+| `reports/robustness.json` | Robustesse multi-graines (donnees brutes) |
+| `reports/robustness.md` | Robustesse multi-graines (rapport) |
+| `docs/advanced_models_report_section.md` | Section de rapport prete a coller (francais, resultats reels) |
 
 ---
 
