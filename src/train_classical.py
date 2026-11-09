@@ -17,6 +17,10 @@ L'arbre de decision suit le meme protocole avec ``scale=False`` (il est
 insensible a l'echelle) et une grille elargie (critere, profondeur,
 regularisation, ponderation des classes).
 
+Le critere de validation croisee est ``f1_macro`` pour tous les modeles,
+aligne sur ``train_advanced.py`` (Random Forest / SVM) a la demande de SA ;
+la balanced accuracy reste calculee et publiee en complement.
+
 Ce module ne reimplemente rien : chargement, caracteristiques, cible,
 decoupage, pretraitement et metriques viennent des modules partages
 (``data_loader``, ``features``, ``targets``, ``splitting``, ``preprocessing``,
@@ -41,7 +45,7 @@ if str(SRC_DIR) not in sys.path:
 import numpy as np
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import balanced_accuracy_score
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -71,14 +75,20 @@ METRIC_LABELS = (
     ("f1_fermeture", "F1 classe 0 (fermeture)"),
 )
 
+# Protocole de validation croisee commun a tous les modeles classiques.
+# Critere unique aligne sur ``train_advanced.py`` (Random Forest / SVM) a la
+# demande de SA : ``f1_macro``. La balanced accuracy est conservee en second
+# critere, uniquement pour le rapport (elle ne sert pas a choisir le modele).
+CV_FOLDS = 5
+CV_SCORING = "f1_macro"
+CV_SECONDARY_SCORING = "balanced_accuracy"
+
 # KNN : grille d'hyperparametres exploree par validation croisee sur le train.
 # ``k`` impair pour limiter les ex aequo entre les deux classes.
 KNN_PARAM_GRID = {
     "model__n_neighbors": [5, 11, 25, 51, 101, 201, 301, 401],
     "model__weights": ["uniform", "distance"],
 }
-KNN_CV_FOLDS = 5
-KNN_SCORING = "balanced_accuracy"
 
 # Arbre de decision : grille 3 x 5 x 4 x 4 x 2 = 480 combinaisons, 5 folds.
 # Les profondeurs bornees et les seuils de feuille limitent le surapprentissage
@@ -91,8 +101,31 @@ DECISION_TREE_PARAM_GRID = {
     "model__min_samples_leaf": [1, 2, 5, 10],
     "model__class_weight": [None, "balanced"],
 }
-DECISION_TREE_CV_FOLDS = 5
-DECISION_TREE_SCORING = "balanced_accuracy"
+
+
+def _cv_splitter() -> StratifiedKFold:
+    """Retourne le decoupage CV commun : 5 folds stratifies, graine 42."""
+    return StratifiedKFold(
+        n_splits=CV_FOLDS,
+        shuffle=True,
+        random_state=RANDOM_STATE,
+    )
+
+
+def _secondary_cv(model, X_train, y_train) -> tuple[float, float]:
+    """Balanced accuracy en CV du reglage retenu (information, pas selection).
+
+    Le choix des hyperparametres reste fonde sur ``CV_SCORING`` ; cette mesure
+    sert uniquement a garder la continuite avec les rapports precedents.
+    """
+    scores = cross_val_score(
+        model,
+        X_train,
+        y_train,
+        cv=_cv_splitter(),
+        scoring=CV_SECONDARY_SCORING,
+    )
+    return float(scores.mean()), float(scores.std())
 
 
 def build_zero_r():
@@ -125,19 +158,16 @@ def build_knn():
 def tune_knn(X_train, y_train) -> GridSearchCV:
     """Optimise KNN par validation croisee 5 folds sur le train uniquement.
 
-    Le score suivi est la balanced accuracy, adaptee au desequilibre des
-    classes (53,2 % de classe 1) et coherent avec le rapport final. Le jeu de
-    test n'est jamais vu pendant cette recherche.
+    Le score suivi est ``f1_macro`` : critere unique de l'equipe, aligne sur
+    ``train_advanced.py`` (Random Forest / SVM) a la demande de SA. La balanced
+    accuracy est seulement rapportee en complement. Le jeu de test n'est jamais
+    vu pendant cette recherche.
     """
     search = GridSearchCV(
         estimator=build_knn(),
         param_grid=KNN_PARAM_GRID,
-        scoring=KNN_SCORING,
-        cv=StratifiedKFold(
-            n_splits=KNN_CV_FOLDS,
-            shuffle=True,
-            random_state=RANDOM_STATE,
-        ),
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
         n_jobs=-1,
         refit=True,
     )
@@ -162,18 +192,14 @@ def tune_decision_tree(X_train, y_train) -> GridSearchCV:
     """Optimise l'arbre par validation croisee 5 folds sur le train seul.
 
     Meme protocole que KNN : ``StratifiedKFold`` melange avec la graine
-    commune, score suivi = balanced accuracy (classes desequilibrees). Le
-    test n'est jamais transmis a cette fonction.
+    commune, score suivi = ``f1_macro`` (critere unique de l'equipe). Le test
+    n'est jamais transmis a cette fonction.
     """
     search = GridSearchCV(
         estimator=build_decision_tree(),
         param_grid=DECISION_TREE_PARAM_GRID,
-        scoring=DECISION_TREE_SCORING,
-        cv=StratifiedKFold(
-            n_splits=DECISION_TREE_CV_FOLDS,
-            shuffle=True,
-            random_state=RANDOM_STATE,
-        ),
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
         n_jobs=-1,
         refit=True,
     )
@@ -285,6 +311,7 @@ def run_knn(data) -> dict:
         key.replace("model__", ""): value
         for key, value in search.best_params_.items()
     }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
 
     return {
         "model": model,
@@ -292,6 +319,8 @@ def run_knn(data) -> dict:
         "best_params": best_params,
         "cv_score": float(search.best_score_),
         "cv_std": cv_std,
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
         "features": list(X_train.columns),
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
@@ -330,6 +359,7 @@ def run_decision_tree(data) -> dict:
         key.replace("model__", ""): value
         for key, value in search.best_params_.items()
     }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
 
     return {
         "model": model,
@@ -337,6 +367,8 @@ def run_decision_tree(data) -> dict:
         "best_params": best_params,
         "cv_score": float(search.best_score_),
         "cv_std": float(search.cv_results_["std_test_score"][best_index]),
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
         "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
         "depth": int(tree.get_depth()),
         "n_leaves": int(tree.get_n_leaves()),
@@ -402,12 +434,16 @@ def print_knn_report(results: dict) -> None:
     print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
     print(
         "hyperparametres retenus (CV "
-        f"{KNN_CV_FOLDS} folds, {KNN_SCORING}) : "
+        f"{CV_FOLDS} folds, {CV_SCORING}) : "
         f"n_neighbors={params.get('n_neighbors')}, weights={params.get('weights')}"
     )
     print(
-        f"balanced accuracy en CV (train)    : "
+        f"{CV_SCORING} en CV (train)              : "
         f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
     )
     print(f"predictions sur le test             : {results['predicted_counts']}")
 
@@ -434,7 +470,7 @@ def print_decision_tree_report(results: dict) -> None:
     print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
     print(
         "hyperparametres retenus (CV "
-        f"{DECISION_TREE_CV_FOLDS} folds, {DECISION_TREE_SCORING}) :"
+        f"{CV_FOLDS} folds, {CV_SCORING}) :"
     )
     for key in (
         "criterion",
@@ -446,8 +482,12 @@ def print_decision_tree_report(results: dict) -> None:
         print(f"  {key:<18} : {params.get(key)}")
     print(f"profondeur / feuilles de l'arbre  : {results['depth']} / {results['n_leaves']}")
     print(
-        f"balanced accuracy en CV (train)    : "
+        f"{CV_SCORING} en CV (train)              : "
         f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
     )
     print(f"balanced accuracy sur le train     : {results['train_score']:.4f}")
     print(f"predictions sur le test             : {results['predicted_counts']}")
