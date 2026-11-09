@@ -1,33 +1,77 @@
-﻿# startup-success-prediction
+﻿# Prédiction du succès des startups
 
-Prédiction du succès ou de l'échec des startups à partir de leurs caractéristiques initiales (mini-projet Data Mining, classification supervisée).
+Mini-projet de **Data Mining** (classification supervisée) : prédire si une startup aura un **succès** (`ipo` ou `acquired`) ou un **échec** (`closed`) à partir de caractéristiques disponibles au moment de sa création.
+
+## Objectif
+
+Construire, comparer et évaluer plusieurs modèles de classification selon un protocole commun, puis intégrer le modèle retenu dans une application Streamlit.
 
 ## Données
 
-- CSV de référence (équipe, sans ISR) : data/raw/startup_data.csv
-- Après préparation (	argets + eatures) : **13 129** lignes retenues (closed 6 161, acquired 5 463, ipo 1 505), split stratifié 80/20 : **10 503 / 2 626** (seed 42).
-- Ne pas ajouter d'autres CSV volumineux dans data/raw/ (voir .gitignore).
+- **Jeu de données de référence (équipe)** : `data/raw/startup_data.csv`
+- **Variables d’entrée (protocole)** : `country_code`, `state_code`, `region`, `city`, `primary_category`, `founding_year`
+- **Cible** : `success` (1 = `ipo`/`acquired`, 0 = `closed` ; `operating` exclu)
+- Ne pas ajouter d’autres fichiers CSV volumineux dans `data/raw/` (voir `.gitignore`).
 
-## Lancer l'application (Streamlit)
+Les choix de préparation, le découpage des données et le critère d’évaluation sont décrits dans [`docs/methodology.md`](docs/methodology.md).
 
-`ash
+## Installation
+
+```bash
 pip install -r requirements.txt
-# optionnel : pip install -r requirements-dev.txt
-="src"   # PowerShell
+```
+
+Optionnel (développement/tests) :
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+## Lancer l’application Streamlit
+
+Depuis la racine du projet, avec `src` accessible dans le `PYTHONPATH` :
+
+**PowerShell**
+```powershell
+$env:PYTHONPATH = "src"
 streamlit run src/app.py
-`
+```
 
-Variables utiles :
-- STARTUP_DATA_PATH : chemin explicite du CSV (si besoin)
-- STARTUP_MODEL_PATH : chemin du pipeline final (models/final_pipeline.joblib attendu par l'app ; voir docs/app_integration.md)
+**Bash**
+```bash
+export PYTHONPATH=src
+streamlit run src/app.py
+```
 
-## Modèle final
+### Variables d’environnement utiles
 
-Le dossier models/ et models/final_pipeline.joblib ne sont pas versionnés tant que le modèle final unique n'est pas validé/exporté. Voir docs/app_integration.md pour le contrat.
+| Variable | Rôle |
+|---|---|
+| `STARTUP_DATA_PATH` | Chemin explicite vers le CSV à utiliser (optionnel) |
+| `STARTUP_MODEL_PATH` | Chemin vers le pipeline final à charger (optionnel) |
 
-## Structure
+## Modèle final et intégration
 
-- data/ : données (référence brute dans data/raw/)
-- src/ : code (préparation, modèles, app)
-- docs/ : méthodologie et intégration
-- eports/ : résultats (ex. RF/SVM)
+Le pipeline final attendu par l’application est `models/final_pipeline.joblib` (voir le contrat dans [`docs/app_integration.md`](docs/app_integration.md)).
+
+> Le dossier `models/` et les artefacts du pipeline final ne sont pas versionnés tant que le modèle final unique n’a pas été validé et exporté selon le protocole d’équipe.
+
+## Structure du dépôt
+
+```text
+.
+├── data/        # Données (référence dans data/raw/)
+├── docs/        # Méthodologie, intégration, notes d’équipe
+├── notebooks/   # Analyses et expérimentations
+├── reports/     # Résultats et rapports générés
+├── src/         # Code source (préparation, modèles, application)
+├── tests/       # Tests automatisés
+├── requirements.txt
+└── requirements-dev.txt
+```
+
+## Documentation
+
+- [`docs/methodology.md`](docs/methodology.md) — protocole et choix méthodologiques
+- [`docs/app_integration.md`](docs/app_integration.md) — contrat d’intégration du modèle dans l’application
+- [`docs/handoff_preprocessing.md`](docs/handoff_preprocessing.md) — notes de passage pour le prétraitement/pipeline
