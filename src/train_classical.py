@@ -17,9 +17,11 @@ L'arbre de decision suit le meme protocole avec ``scale=False`` (il est
 insensible a l'echelle) et une grille elargie (critere, profondeur,
 regularisation, ponderation des classes).
 
-Le critere de validation croisee est ``f1_macro`` pour tous les modeles,
-aligne sur ``train_advanced.py`` (Random Forest / SVM) a la demande de SA ;
-la balanced accuracy reste calculee et publiee en complement.
+Naive Bayes gaussien complete la famille classique avec ``scale=False`` (la
+standardisation est sans effet sur un modele gaussien par variable). Le
+critere de validation croisee est ``f1_macro`` pour tous les modeles, aligne
+sur ``train_advanced.py`` (Random Forest / SVM) a la demande de SA ; la
+balanced accuracy reste calculee et publiee en complement.
 
 Ce module ne reimplemente rien : chargement, caracteristiques, cible,
 decoupage, pretraitement et metriques viennent des modules partages
@@ -46,6 +48,7 @@ import numpy as np
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -100,6 +103,13 @@ DECISION_TREE_PARAM_GRID = {
     "model__min_samples_split": [2, 5, 10, 20],
     "model__min_samples_leaf": [1, 2, 5, 10],
     "model__class_weight": [None, "balanced"],
+}
+
+# Naive Bayes gaussien : seul hyperparametre reellement disponible, la variance
+# de lissage ``var_smoothing`` (elargissement numerique des variances). La
+# grille reste volontairement courte : le modele est quasi sans reglage.
+NAIVE_BAYES_PARAM_GRID = {
+    "model__var_smoothing": [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5],
 }
 
 
@@ -198,6 +208,35 @@ def tune_decision_tree(X_train, y_train) -> GridSearchCV:
     search = GridSearchCV(
         estimator=build_decision_tree(),
         param_grid=DECISION_TREE_PARAM_GRID,
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
+        n_jobs=-1,
+        refit=True,
+    )
+    search.fit(X_train, y_train)
+    return search
+
+
+def build_naive_bayes():
+    """Retourne le Pipeline partage (pretraitement + Naive Bayes gaussien).
+
+    ``scale=False`` : la standardisation est une transformation affine, sans
+    effet sur l'ajustement d'une gaussienne par variable ; elle n'apporterait
+    donc rien (voir docs/handoff_preprocessing.md). ``GaussianNB`` est
+    deterministe : aucun ``random_state`` n'est necessaire.
+    """
+    return preprocessing.build_pipeline(GaussianNB(), scale=False)
+
+
+def tune_naive_bayes(X_train, y_train) -> GridSearchCV:
+    """Optimise ``var_smoothing`` par CV 5 folds sur le train uniquement.
+
+    Meme protocole et meme critere (``f1_macro``) que KNN et l'arbre ; le test
+    n'est jamais transmis a cette fonction.
+    """
+    search = GridSearchCV(
+        estimator=build_naive_bayes(),
+        param_grid=NAIVE_BAYES_PARAM_GRID,
         scoring=CV_SCORING,
         cv=_cv_splitter(),
         n_jobs=-1,
@@ -383,6 +422,53 @@ def run_decision_tree(data) -> dict:
     }
 
 
+def run_naive_bayes(data) -> dict:
+    """Entraine Naive Bayes sur le train, predit et evalue sur le test.
+
+    Sequence identique aux autres modeles : decoupage partage -> verification
+    du protocole -> CV 5 folds sur le train -> ajustement final sur tout le
+    train -> evaluation unique sur le test. Le test n'est ni vu pendant la
+    recherche ni utilise pour choisir ``var_smoothing``.
+    """
+    X_train, X_test, y_train, y_test = splitting.split_dataset(
+        data, random_state=RANDOM_STATE
+    )
+    _check_protocol(X_train)
+    _check_protocol(X_test)
+
+    search = tune_naive_bayes(X_train, y_train)
+    model = search.best_estimator_
+
+    y_pred = np.asarray(model.predict(X_test))
+    metrics = evaluate_classifier(model, X_test, y_test)
+
+    best_index = int(search.best_index_)
+    best_params = {
+        key.replace("model__", ""): value
+        for key, value in search.best_params_.items()
+    }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
+
+    return {
+        "model": model,
+        "search": search,
+        "best_params": best_params,
+        "cv_score": float(search.best_score_),
+        "cv_std": float(search.cv_results_["std_test_score"][best_index]),
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
+        "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
+        "features": list(X_train.columns),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "predicted_counts": {
+            int(label): int(count)
+            for label, count in zip(*np.unique(y_pred, return_counts=True))
+        },
+        "metrics": metrics,
+    }
+
+
 def _format_metric(value) -> str:
     if value is None:
         return "indisponible"
@@ -505,6 +591,43 @@ def print_decision_tree_report(results: dict) -> None:
     print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
 
 
+def print_naive_bayes_report(results: dict) -> None:
+    """Affiche le reglage retenu et les metriques de Naive Bayes gaussien."""
+    params = results["best_params"]
+    n_test = results["n_test"]
+
+    print("\n=== Modele ===")
+    print("Naive Bayes : GaussianNB (pipeline scale=False)")
+    print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
+    print(
+        "hyperparametres retenus (CV "
+        f"{CV_FOLDS} folds, {CV_SCORING}) : "
+        f"var_smoothing={params.get('var_smoothing')}"
+    )
+    print(
+        f"{CV_SCORING} en CV (train)              : "
+        f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
+    )
+    print(f"balanced accuracy sur le train     : {results['train_score']:.4f}")
+    print(f"predictions sur le test             : {results['predicted_counts']}")
+
+    metrics = results["metrics"]
+    print(f"\n=== Metriques (jeu de test, {n_test} observations) ===")
+    for key, label in METRIC_LABELS:
+        print(f"{label:<32} {_format_metric(metrics.get(key))}")
+    print(f"{'ROC-AUC':<32} {_format_metric(metrics.get('roc_auc'))}")
+
+    matrix = metrics["confusion_matrix"]
+    print("\nMatrice de confusion (lignes = reel, colonnes = predit) :")
+    print("            pred 0   pred 1")
+    print(f"reel 0      {matrix[0][0]:>6}   {matrix[0][1]:>6}")
+    print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
+
+
 def print_comparison(models) -> None:
     """Compare tous les modeles sur le meme jeu de test.
 
@@ -561,11 +684,15 @@ def main() -> int:
     tree_results = run_decision_tree(data)
     print_decision_tree_report(tree_results)
 
+    nb_results = run_naive_bayes(data)
+    print_naive_bayes_report(nb_results)
+
     print_comparison(
         [
             ("Zero-R", zero_results),
             ("KNN", knn_results),
             ("Decision Tree", tree_results),
+            ("Naive Bayes", nb_results),
         ]
     )
     return 0
