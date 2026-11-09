@@ -17,6 +17,12 @@ L'arbre de decision suit le meme protocole avec ``scale=False`` (il est
 insensible a l'echelle) et une grille elargie (critere, profondeur,
 regularisation, ponderation des classes).
 
+Naive Bayes gaussien complete la famille classique avec ``scale=False`` (la
+standardisation est sans effet sur un modele gaussien par variable). Le
+critere de validation croisee est ``f1_macro`` pour tous les modeles, aligne
+sur ``train_advanced.py`` (Random Forest / SVM) a la demande de SA ; la
+balanced accuracy reste calculee et publiee en complement.
+
 Ce module ne reimplemente rien : chargement, caracteristiques, cible,
 decoupage, pretraitement et metriques viennent des modules partages
 (``data_loader``, ``features``, ``targets``, ``splitting``, ``preprocessing``,
@@ -28,7 +34,11 @@ Usage :
 
 from __future__ import annotations
 
+import json
+import platform
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Le projet utilise des imports "plats" (import features, import splitting...).
@@ -41,7 +51,8 @@ if str(SRC_DIR) not in sys.path:
 import numpy as np
 from sklearn.dummy import DummyClassifier
 from sklearn.metrics import balanced_accuracy_score
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -71,14 +82,20 @@ METRIC_LABELS = (
     ("f1_fermeture", "F1 classe 0 (fermeture)"),
 )
 
+# Protocole de validation croisee commun a tous les modeles classiques.
+# Critere unique aligne sur ``train_advanced.py`` (Random Forest / SVM) a la
+# demande de SA : ``f1_macro``. La balanced accuracy est conservee en second
+# critere, uniquement pour le rapport (elle ne sert pas a choisir le modele).
+CV_FOLDS = 5
+CV_SCORING = "f1_macro"
+CV_SECONDARY_SCORING = "balanced_accuracy"
+
 # KNN : grille d'hyperparametres exploree par validation croisee sur le train.
 # ``k`` impair pour limiter les ex aequo entre les deux classes.
 KNN_PARAM_GRID = {
     "model__n_neighbors": [5, 11, 25, 51, 101, 201, 301, 401],
     "model__weights": ["uniform", "distance"],
 }
-KNN_CV_FOLDS = 5
-KNN_SCORING = "balanced_accuracy"
 
 # Arbre de decision : grille 3 x 5 x 4 x 4 x 2 = 480 combinaisons, 5 folds.
 # Les profondeurs bornees et les seuils de feuille limitent le surapprentissage
@@ -91,8 +108,41 @@ DECISION_TREE_PARAM_GRID = {
     "model__min_samples_leaf": [1, 2, 5, 10],
     "model__class_weight": [None, "balanced"],
 }
-DECISION_TREE_CV_FOLDS = 5
-DECISION_TREE_SCORING = "balanced_accuracy"
+
+# Naive Bayes gaussien : seul hyperparametre reellement disponible, la variance
+# de lissage ``var_smoothing`` (elargissement numerique des variances). La
+# grille reste volontairement courte : le modele est quasi sans reglage.
+NAIVE_BAYES_PARAM_GRID = {
+    "model__var_smoothing": [1e-12, 1e-11, 1e-10, 1e-9, 1e-8, 1e-7, 1e-6, 1e-5],
+}
+
+# Rapport machine-readable demande par SA (best_params, CV, test, versions).
+RESULTS_PATH = PROJECT_ROOT / "reports" / "cs23_classical_results.json"
+
+
+def _cv_splitter() -> StratifiedKFold:
+    """Retourne le decoupage CV commun : 5 folds stratifies, graine 42."""
+    return StratifiedKFold(
+        n_splits=CV_FOLDS,
+        shuffle=True,
+        random_state=RANDOM_STATE,
+    )
+
+
+def _secondary_cv(model, X_train, y_train) -> tuple[float, float]:
+    """Balanced accuracy en CV du reglage retenu (information, pas selection).
+
+    Le choix des hyperparametres reste fonde sur ``CV_SCORING`` ; cette mesure
+    sert uniquement a garder la continuite avec les rapports precedents.
+    """
+    scores = cross_val_score(
+        model,
+        X_train,
+        y_train,
+        cv=_cv_splitter(),
+        scoring=CV_SECONDARY_SCORING,
+    )
+    return float(scores.mean()), float(scores.std())
 
 
 def build_zero_r():
@@ -125,19 +175,16 @@ def build_knn():
 def tune_knn(X_train, y_train) -> GridSearchCV:
     """Optimise KNN par validation croisee 5 folds sur le train uniquement.
 
-    Le score suivi est la balanced accuracy, adaptee au desequilibre des
-    classes (53,2 % de classe 1) et coherent avec le rapport final. Le jeu de
-    test n'est jamais vu pendant cette recherche.
+    Le score suivi est ``f1_macro`` : critere unique de l'equipe, aligne sur
+    ``train_advanced.py`` (Random Forest / SVM) a la demande de SA. La balanced
+    accuracy est seulement rapportee en complement. Le jeu de test n'est jamais
+    vu pendant cette recherche.
     """
     search = GridSearchCV(
         estimator=build_knn(),
         param_grid=KNN_PARAM_GRID,
-        scoring=KNN_SCORING,
-        cv=StratifiedKFold(
-            n_splits=KNN_CV_FOLDS,
-            shuffle=True,
-            random_state=RANDOM_STATE,
-        ),
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
         n_jobs=-1,
         refit=True,
     )
@@ -162,18 +209,43 @@ def tune_decision_tree(X_train, y_train) -> GridSearchCV:
     """Optimise l'arbre par validation croisee 5 folds sur le train seul.
 
     Meme protocole que KNN : ``StratifiedKFold`` melange avec la graine
-    commune, score suivi = balanced accuracy (classes desequilibrees). Le
-    test n'est jamais transmis a cette fonction.
+    commune, score suivi = ``f1_macro`` (critere unique de l'equipe). Le test
+    n'est jamais transmis a cette fonction.
     """
     search = GridSearchCV(
         estimator=build_decision_tree(),
         param_grid=DECISION_TREE_PARAM_GRID,
-        scoring=DECISION_TREE_SCORING,
-        cv=StratifiedKFold(
-            n_splits=DECISION_TREE_CV_FOLDS,
-            shuffle=True,
-            random_state=RANDOM_STATE,
-        ),
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
+        n_jobs=-1,
+        refit=True,
+    )
+    search.fit(X_train, y_train)
+    return search
+
+
+def build_naive_bayes():
+    """Retourne le Pipeline partage (pretraitement + Naive Bayes gaussien).
+
+    ``scale=False`` : la standardisation est une transformation affine, sans
+    effet sur l'ajustement d'une gaussienne par variable ; elle n'apporterait
+    donc rien (voir docs/handoff_preprocessing.md). ``GaussianNB`` est
+    deterministe : aucun ``random_state`` n'est necessaire.
+    """
+    return preprocessing.build_pipeline(GaussianNB(), scale=False)
+
+
+def tune_naive_bayes(X_train, y_train) -> GridSearchCV:
+    """Optimise ``var_smoothing`` par CV 5 folds sur le train uniquement.
+
+    Meme protocole et meme critere (``f1_macro``) que KNN et l'arbre ; le test
+    n'est jamais transmis a cette fonction.
+    """
+    search = GridSearchCV(
+        estimator=build_naive_bayes(),
+        param_grid=NAIVE_BAYES_PARAM_GRID,
+        scoring=CV_SCORING,
+        cv=_cv_splitter(),
         n_jobs=-1,
         refit=True,
     )
@@ -273,7 +345,9 @@ def run_knn(data) -> dict:
     _check_protocol(X_train)
     _check_protocol(X_test)
 
+    started = time.perf_counter()
     search = tune_knn(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
     model = search.best_estimator_
 
     y_pred = np.asarray(model.predict(X_test))
@@ -285,6 +359,7 @@ def run_knn(data) -> dict:
         key.replace("model__", ""): value
         for key, value in search.best_params_.items()
     }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
 
     return {
         "model": model,
@@ -292,6 +367,10 @@ def run_knn(data) -> dict:
         "best_params": best_params,
         "cv_score": float(search.best_score_),
         "cv_std": cv_std,
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
         "features": list(X_train.columns),
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
@@ -318,7 +397,9 @@ def run_decision_tree(data) -> dict:
     _check_protocol(X_train)
     _check_protocol(X_test)
 
+    started = time.perf_counter()
     search = tune_decision_tree(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
     model = search.best_estimator_
 
     y_pred = np.asarray(model.predict(X_test))
@@ -330,6 +411,7 @@ def run_decision_tree(data) -> dict:
         key.replace("model__", ""): value
         for key, value in search.best_params_.items()
     }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
 
     return {
         "model": model,
@@ -337,9 +419,64 @@ def run_decision_tree(data) -> dict:
         "best_params": best_params,
         "cv_score": float(search.best_score_),
         "cv_std": float(search.cv_results_["std_test_score"][best_index]),
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
         "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
         "depth": int(tree.get_depth()),
         "n_leaves": int(tree.get_n_leaves()),
+        "features": list(X_train.columns),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "predicted_counts": {
+            int(label): int(count)
+            for label, count in zip(*np.unique(y_pred, return_counts=True))
+        },
+        "metrics": metrics,
+    }
+
+
+def run_naive_bayes(data) -> dict:
+    """Entraine Naive Bayes sur le train, predit et evalue sur le test.
+
+    Sequence identique aux autres modeles : decoupage partage -> verification
+    du protocole -> CV 5 folds sur le train -> ajustement final sur tout le
+    train -> evaluation unique sur le test. Le test n'est ni vu pendant la
+    recherche ni utilise pour choisir ``var_smoothing``.
+    """
+    X_train, X_test, y_train, y_test = splitting.split_dataset(
+        data, random_state=RANDOM_STATE
+    )
+    _check_protocol(X_train)
+    _check_protocol(X_test)
+
+    started = time.perf_counter()
+    search = tune_naive_bayes(X_train, y_train)
+    tune_seconds = time.perf_counter() - started
+    model = search.best_estimator_
+
+    y_pred = np.asarray(model.predict(X_test))
+    metrics = evaluate_classifier(model, X_test, y_test)
+
+    best_index = int(search.best_index_)
+    best_params = {
+        key.replace("model__", ""): value
+        for key, value in search.best_params_.items()
+    }
+    bal_mean, bal_std = _secondary_cv(model, X_train, y_train)
+
+    return {
+        "model": model,
+        "search": search,
+        "best_params": best_params,
+        "cv_score": float(search.best_score_),
+        "cv_std": float(search.cv_results_["std_test_score"][best_index]),
+        "cv_balanced_accuracy": bal_mean,
+        "cv_balanced_std": bal_std,
+        "n_configurations": int(len(search.cv_results_["params"])),
+        "tune_seconds": float(tune_seconds),
+        "train_score": float(balanced_accuracy_score(y_train, model.predict(X_train))),
         "features": list(X_train.columns),
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
@@ -402,12 +539,16 @@ def print_knn_report(results: dict) -> None:
     print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
     print(
         "hyperparametres retenus (CV "
-        f"{KNN_CV_FOLDS} folds, {KNN_SCORING}) : "
+        f"{CV_FOLDS} folds, {CV_SCORING}) : "
         f"n_neighbors={params.get('n_neighbors')}, weights={params.get('weights')}"
     )
     print(
-        f"balanced accuracy en CV (train)    : "
+        f"{CV_SCORING} en CV (train)              : "
         f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
     )
     print(f"predictions sur le test             : {results['predicted_counts']}")
 
@@ -434,7 +575,7 @@ def print_decision_tree_report(results: dict) -> None:
     print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
     print(
         "hyperparametres retenus (CV "
-        f"{DECISION_TREE_CV_FOLDS} folds, {DECISION_TREE_SCORING}) :"
+        f"{CV_FOLDS} folds, {CV_SCORING}) :"
     )
     for key in (
         "criterion",
@@ -446,8 +587,12 @@ def print_decision_tree_report(results: dict) -> None:
         print(f"  {key:<18} : {params.get(key)}")
     print(f"profondeur / feuilles de l'arbre  : {results['depth']} / {results['n_leaves']}")
     print(
-        f"balanced accuracy en CV (train)    : "
+        f"{CV_SCORING} en CV (train)              : "
         f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
     )
     print(f"balanced accuracy sur le train     : {results['train_score']:.4f}")
     print(f"predictions sur le test             : {results['predicted_counts']}")
@@ -463,6 +608,114 @@ def print_decision_tree_report(results: dict) -> None:
     print("            pred 0   pred 1")
     print(f"reel 0      {matrix[0][0]:>6}   {matrix[0][1]:>6}")
     print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
+
+
+def print_naive_bayes_report(results: dict) -> None:
+    """Affiche le reglage retenu et les metriques de Naive Bayes gaussien."""
+    params = results["best_params"]
+    n_test = results["n_test"]
+
+    print("\n=== Modele ===")
+    print("Naive Bayes : GaussianNB (pipeline scale=False)")
+    print(f"variables d'entree ({len(results['features'])}) : {results['features']}")
+    print(
+        "hyperparametres retenus (CV "
+        f"{CV_FOLDS} folds, {CV_SCORING}) : "
+        f"var_smoothing={params.get('var_smoothing')}"
+    )
+    print(
+        f"{CV_SCORING} en CV (train)              : "
+        f"{results['cv_score']:.4f} +/- {results['cv_std']:.4f}"
+    )
+    print(
+        f"{CV_SECONDARY_SCORING} en CV (train)      : "
+        f"{results['cv_balanced_accuracy']:.4f} +/- {results['cv_balanced_std']:.4f}"
+    )
+    print(f"balanced accuracy sur le train     : {results['train_score']:.4f}")
+    print(f"predictions sur le test             : {results['predicted_counts']}")
+
+    metrics = results["metrics"]
+    print(f"\n=== Metriques (jeu de test, {n_test} observations) ===")
+    for key, label in METRIC_LABELS:
+        print(f"{label:<32} {_format_metric(metrics.get(key))}")
+    print(f"{'ROC-AUC':<32} {_format_metric(metrics.get('roc_auc'))}")
+
+    matrix = metrics["confusion_matrix"]
+    print("\nMatrice de confusion (lignes = reel, colonnes = predit) :")
+    print("            pred 0   pred 1")
+    print(f"reel 0      {matrix[0][0]:>6}   {matrix[0][1]:>6}")
+    print(f"reel 1      {matrix[1][0]:>6}   {matrix[1][1]:>6}")
+
+
+def export_results_json(models: dict, data, path: Path = RESULTS_PATH) -> Path:
+    """Ecrit le rapport machine-readable demande par SA.
+
+    Contient le protocole, les effectifs, les hyperparametres retenus, les
+    scores de validation croisee, les metriques de test et les versions des
+    bibliotheques. Aucune identite personnelle : le code etudiant ``CS23``
+    suffit.
+    """
+    import joblib
+    import pandas as pd
+    import sklearn
+
+    _, _, y_train, _ = splitting.split_dataset(data, random_state=RANDOM_STATE)
+    payload = {
+        "generated_by": "CS23",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "protocol": {
+            "data_path": "data/raw/startup_data.csv",
+            "features": list(splitting.INITIAL_FEATURES),
+            "excluded": ["founding_month"],
+            "scoring": CV_SCORING,
+            "secondary_scoring": CV_SECONDARY_SCORING,
+            "cv_folds": CV_FOLDS,
+            "test_size": 0.20,
+            "random_state": RANDOM_STATE,
+            "max_year": MAX_YEAR,
+            "scale": {
+                "zero_r": False,
+                "knn": True,
+                "decision_tree": False,
+                "naive_bayes": False,
+            },
+        },
+        "dataset": {
+            "raw_rows": int(len(data_loader.load_raw(DATASET_PATH))),
+            "kept_rows": int(len(data)),
+            "train_rows": int(models["zero_r"]["n_train"]),
+            "test_rows": int(models["zero_r"]["n_test"]),
+            "positive_share_train": float(y_train.mean()),
+        },
+        "versions": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "pandas": pd.__version__,
+            "scikit-learn": sklearn.__version__,
+            "joblib": joblib.__version__,
+        },
+        "models": {
+            name: {
+                "best_params": results.get("best_params", {}),
+                "cv_score": results.get("cv_score"),
+                "cv_std": results.get("cv_std"),
+                "cv_balanced_accuracy": results.get("cv_balanced_accuracy"),
+                "cv_balanced_std": results.get("cv_balanced_std"),
+                "n_configurations": results.get("n_configurations"),
+                "tune_seconds": results.get("tune_seconds"),
+                "n_train": results.get("n_train"),
+                "n_test": results.get("n_test"),
+                "test": results["metrics"],
+            }
+            for name, results in models.items()
+        },
+    }
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return path
 
 
 def print_comparison(models) -> None:
@@ -521,13 +774,28 @@ def main() -> int:
     tree_results = run_decision_tree(data)
     print_decision_tree_report(tree_results)
 
+    nb_results = run_naive_bayes(data)
+    print_naive_bayes_report(nb_results)
+
     print_comparison(
         [
             ("Zero-R", zero_results),
             ("KNN", knn_results),
             ("Decision Tree", tree_results),
+            ("Naive Bayes", nb_results),
         ]
     )
+
+    report_path = export_results_json(
+        {
+            "zero_r": zero_results,
+            "knn": knn_results,
+            "decision_tree": tree_results,
+            "naive_bayes": nb_results,
+        },
+        data,
+    )
+    print(f"\nRapport JSON : {report_path}")
     return 0
 
 
