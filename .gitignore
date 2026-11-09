@@ -1,4 +1,4 @@
-# Données traitées / nettoyées - autorisées à être committées
+ï»¿# DonnÃ©es traitÃ©es / nettoyÃ©es - autorisÃ©es Ã  Ãªtre committÃ©es
 !data/processed/*.csv
 !data/cleaned/*.csv
 
@@ -21,4 +21,6 @@ Thumbs.db
 
 
 # Donnees brutes (CSV Kaggle) - ne jamais committer
-data/raw/
+data/raw/*
+!data/raw/startup_data.csv
+

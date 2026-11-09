@@ -72,12 +72,16 @@ def load_raw(path: str | Path) -> pd.DataFrame:
 
 
 def find_raw_file(base: str | Path = ".") -> Path | None:
-    """Retourne le plus gros CSV trouve dans les emplacements attendus.
+    """Retourne le CSV brut à utiliser.
 
-    Le plus gros fichier est retenu pour eviter de selectionner un extrait de
-    test alors que le dataset complet est present.
+    Priorité au fichier canonique de l'équipe (data/raw/startup_data.csv) pour
+    éviter de sélectionner un CSV local parasite plus volumineux. Sinon, retourne
+    le plus gros CSV trouvé dans les emplacements attendus.
     """
     base = Path(base)
+    canonical = base / "data" / "raw" / "startup_data.csv"
+    if canonical.is_file():
+        return canonical
     candidates: list[Path] = []
     for pattern in SEARCH_PATTERNS:
         candidates.extend(path for path in base.glob(pattern) if path.is_file())
