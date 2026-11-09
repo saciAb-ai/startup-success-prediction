@@ -2,8 +2,8 @@
 
 **Auteur :** `bl` (GitHub `bl7j`)
 **Fichier :** `src/train_advanced.py`
-**Tests :** `tests/test_train_advanced.py` (21 tests)
-**Statut :** Draft PR #2 - <https://github.com/saciAb-ai/startup-success-prediction/pull/2>
+**Tests :** `tests/test_train_advanced.py` (24 tests)
+**Statut :** fusionné dans `main` via la PR #2 (merge commit `41793f0`) - <https://github.com/saciAb-ai/startup-success-prediction/pull/2>
 
 ---
 
@@ -179,9 +179,9 @@ python -m pytest tests/test_train_advanced.py -q
 | Fichier | Role |
 |---|---|
 | `src/train_advanced.py` | Pipelines, grilles, CV, chargement, evaluation, importance, robustesse |
-| `tests/test_train_advanced.py` | 21 tests (protocole, pipelines, grilles, analyses, bout en bout) |
+| `tests/test_train_advanced.py` | 24 tests (protocole, pipelines, grilles, analyses, bout en bout) |
 | `reports/bl_advanced_results.json` | Resultats detailles et reproductibles |
-| `reports/bl_advanced_results.md` | Tableau de resultats |
+| `reports/bl_advanced_results.md` | Performances macro, metriques par classe et matrices de confusion |
 | `reports/bl_feature_importance.json` | Importance des variables (donnees brutes) |
 | `reports/bl_feature_importance.md` | Importance des variables (rapport) |
 | `reports/bl_robustness.json` | Robustesse multi-graines (donnees brutes) |

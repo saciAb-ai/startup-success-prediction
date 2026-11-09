@@ -950,9 +950,80 @@ def format_robustness_markdown(results: Mapping[str, Any]) -> str:
 # H. Restitution
 # ---------------------------------------------------------------------------
 
+# Libelles lisibles pour les rapports Markdown (les cles du JSON restent
+# `random_forest` et `svm`).
+MODEL_LABELS: dict[str, str] = {
+    "random_forest": "Random Forest",
+    "svm": "SVM",
+}
+CLASS_LABELS: dict[int, str] = {
+    0: "fermeture",
+    1: "IPO ou acquisition",
+}
+
+
+def _model_label(name: str) -> str:
+    """Nom d'affichage d'un modele (repli sur la cle JSON si inconnue)."""
+    return MODEL_LABELS.get(name, name)
+
+
+def _class_metrics_from_confusion(
+    matrix: Sequence[Sequence[int]],
+) -> dict[int, dict[str, float | int]]:
+    """Derive precision, rappel, F1 et effectif par classe d'une matrice 2x2.
+
+    Parametres
+    ----------
+    matrix : Sequence[Sequence[int]]
+        Matrice de confusion ``[[TN, FP], [FN, TP]]`` : lignes = classe
+        reelle, colonnes = classe predite (ordre ``[0, 1]``).
+
+    Retour
+    ------
+    dict[int, dict[str, float | int]]
+        ``{0: {...}, 1: {...}}`` avec les cles ``precision``, ``recall``,
+        ``f1`` et ``support``.
+
+    Notes
+    -----
+    Le JSON produit par ``--run`` ne stocke que les mesures de la classe 0
+    (``precision_fermeture``, etc.). Ce calcul retrouve exactement les mesures
+    de la classe 1 a partir de la matrice, sans reentrainer ni reevaluer le
+    modele : aucune valeur n'est inventee.
+    """
+    values = np.asarray(matrix, dtype=float)
+    if values.shape != (2, 2):
+        raise ValueError(
+            "Matrice de confusion attendue en 2x2, recu "
+            f"{values.shape}."
+        )
+
+    metrics: dict[int, dict[str, float | int]] = {}
+    for label in (0, 1):
+        true_positive = values[label, label]
+        predicted = values[:, label].sum()
+        actual = values[label, :].sum()
+        precision = float(true_positive / predicted) if predicted else 0.0
+        recall = float(true_positive / actual) if actual else 0.0
+        denominator = precision + recall
+        f1 = float(2 * precision * recall / denominator) if denominator else 0.0
+        metrics[label] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": int(actual),
+        }
+    return metrics
+
 
 def format_markdown(results: Mapping[str, Any]) -> str:
-    """Met en forme les resultats en tableau Markdown copiable."""
+    """Met en forme les resultats en tableaux Markdown copiables.
+
+    Le rapport contient les performances macro, les metriques par classe
+    (precision, rappel, F1, effectif) et les matrices de confusion du jeu de
+    test. Les metriques par classe sont derivees de la matrice de confusion
+    stockee dans le JSON : aucune valeur n'est inventee.
+    """
     protocol = results["protocol"]
     dataset = results["dataset"]
     lines = [
@@ -975,9 +1046,10 @@ def format_markdown(results: Mapping[str, Any]) -> str:
         "",
         "## Resultats",
         "",
-        "| Modele | Meilleurs parametres | F1 macro (CV) | F1 macro (test) | "
-        "ROC-AUC (test) | Accuracy (test) | Duree (s) |",
-        "|---|---|---|---|---|---|---|",
+        "| Modele | Meilleurs parametres | F1 macro (CV) | Precision macro | "
+        "Rappel macro | F1 macro (test) | ROC-AUC (test) | Accuracy (test) | "
+        "Accuracy equilibree | Duree (s) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name, payload in results["models"].items():
         test = payload["test"]
@@ -987,10 +1059,47 @@ def format_markdown(results: Mapping[str, Any]) -> str:
         )
         roc_auc = "n/a" if test["roc_auc"] is None else f"{test['roc_auc']:.4f}"
         lines.append(
-            f"| {name} | {params} | {payload['best_cv_score']:.4f} | "
+            f"| {_model_label(name)} | {params} | {payload['best_cv_score']:.4f} | "
+            f"{test['precision_macro']:.4f} | {test['recall_macro']:.4f} | "
             f"{test['f1_macro']:.4f} | {roc_auc} | {test['accuracy']:.4f} | "
-            f"{payload['fit_seconds']:.1f} |"
+            f"{test['balanced_accuracy']:.4f} | {payload['fit_seconds']:.1f} |"
         )
+
+    lines += [
+        "",
+        "## Metriques par classe (jeu de test)",
+        "",
+        "| Modele | Classe | Precision | Rappel | F1 | Effectif |",
+        "|---|---|---|---|---|---|",
+    ]
+    for name, payload in results["models"].items():
+        per_class = _class_metrics_from_confusion(
+            payload["test"]["confusion_matrix"]
+        )
+        for label in (0, 1):
+            row = per_class[label]
+            lines.append(
+                f"| {_model_label(name)} | {label} ({CLASS_LABELS[label]}) | "
+                f"{row['precision']:.4f} | {row['recall']:.4f} | "
+                f"{row['f1']:.4f} | {row['support']} |"
+            )
+
+    lines += [
+        "",
+        "## Matrices de confusion (jeu de test)",
+        "",
+        "Lignes = classe reelle, colonnes = classe predite (ordre 0, 1).",
+        "",
+        "| Modele | Reel \\ Predit | 0 (fermeture) | 1 (IPO ou acquisition) |",
+        "|---|---|---|---|",
+    ]
+    for name, payload in results["models"].items():
+        matrix = payload["test"]["confusion_matrix"]
+        for label in (0, 1):
+            lines.append(
+                f"| {_model_label(name)} | {label} ({CLASS_LABELS[label]}) | "
+                f"{matrix[label][0]} | {matrix[label][1]} |"
+            )
 
     lines += [
         "",
@@ -999,6 +1108,8 @@ def format_markdown(results: Mapping[str, Any]) -> str:
         "- Les hyperparametres sont choisis uniquement sur le train, en CV 5 folds.",
         "- Le jeu de test n'est utilise qu'une fois, apres la CV.",
         "- Le preprocesseur est ajuste dans chaque fold : aucune fuite de donnees.",
+        "- Les metriques par classe sont derivees de la matrice de confusion du "
+        "test (memes predictions, aucune reevaluation).",
         "- Les scores ne sont pas des probabilites de succes futur : ce sont des "
         "mesures de discrimination sur ce jeu de donnees historique.",
         "",
