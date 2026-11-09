@@ -1,23 +1,33 @@
-# Export du modèle final pour l'application
+# Export d'un pipeline candidat (non validé) pour l'application
 
 > Rédigé par `bl` (GitHub `bl7j`).
 > Le contrat d'intégration est défini dans `docs/app_integration.md` et vérifié
 > par `src/models.py`.
+
+> ⚠️ **Statut : candidat non validé.**
+> Ce script ne désigne **pas** le modèle final de l'équipe et ne doit pas être
+> présenté comme tel. Le modèle final unique sera choisi après validation par SA
+> du tableau comparatif global des **6 modèles** (Zero-R, KNN, Decision Tree,
+> Gaussian Naive Bayes, Random Forest, SVM), avec le même CSV, le même split et
+> le même critère CV `f1_macro`. Tant que ce tableau n'est pas validé, le
+> fichier produit reste un **essai technique local**.
 
 ---
 
 ## 1. À quoi sert ce script
 
 `src/export_final_model.py` produit les deux fichiers attendus par
-l'application Streamlit :
+l'application Streamlit, à titre d'essai local :
 
 | Fichier | Contenu |
 |---|---|
 | `models/final_pipeline.joblib` | `Pipeline` scikit-learn **entraîné** (prétraitement + modèle) |
-| `models/final_pipeline.json` | Métadonnées : modèle, version de scikit-learn, variables, hyperparamètres, métriques test enregistrées, effectifs |
+| `models/final_pipeline.json` | Métadonnées : modèle, statut d'export, version de scikit-learn, variables, hyperparamètres, métriques test enregistrées, effectifs |
 
 Il ne choisit pas le modèle à la place de l'équipe : le modèle est passé en
-argument. Il ne committe rien : l'écriture se fait localement.
+argument. Il ne committe rien : l'écriture se fait localement. Les métadonnées
+portent explicitement `"export_status": "candidate_not_validated"` et
+`"validation_required": "tableau comparatif global des 6 modeles valide par SA"`.
 
 ---
 
@@ -139,6 +149,11 @@ C'est une **décision d'équipe**, pas une décision technique :
 Dans les deux cas, le fichier doit être produit avec la **même version de
 scikit-learn** que l'application.
 
+**Décision actuelle : aucun `models/final_pipeline.joblib` ni `.json` n'est
+versionné.** Le dépôt ne contient aucun binaire de modèle. Ce point reste en
+attente de la décision d'équipe, et ne sera pas modifié sans accord explicite
+de SA.
+
 ---
 
 ## 7. Périmètre
@@ -147,3 +162,7 @@ Le script gère les deux modèles de `bl` : `random_forest` et `svm`. Si l'équi
 retient un modèle classique (Zero-R, KNN, Decision Tree, Naïve Bayes), il faudra
 soit ajouter son constructeur, soit étendre le script après la décision
 d'équipe.
+
+Tant que Gaussian Naive Bayes n'est pas implémenté et que le tableau comparatif
+global des 6 modèles n'est pas validé par SA, ce script n'est **pas** utilisé
+pour désigner le modèle final. Il reste un outil d'essai local.
