@@ -1,26 +1,35 @@
-"""Exporte le pipeline final entraine pour l'application Streamlit.
+"""Exporte un pipeline candidat pour l'application Streamlit (non valide).
 
 Projet : Prediction du succes ou de l'echec des startups a partir de leurs
 caracteristiques initiales (mini-projet Data Mining).
 
+Avertissement
+-------------
+Ce script NE designe PAS le modele final de l'equipe et ne doit pas etre
+presente comme tel. Le modele final unique sera choisi apres validation par SA
+du tableau comparatif global des 6 modeles (Zero-R, KNN, Decision Tree,
+Gaussian Naive Bayes, Random Forest, SVM), avec le meme CSV, le meme split et
+le meme critere CV ``f1_macro``. Tant que ce tableau n'est pas valide, le
+fichier produit reste un **candidat local non valide**.
+
 Role de ce module
 -----------------
-- Reconstruire le pipeline retenu (Random Forest ou SVM) avec les meilleurs
-  hyperparametres enregistres par ``train_advanced.py --run``.
+- Reconstruire un pipeline candidat (Random Forest ou SVM) a partir des
+  meilleurs hyperparametres enregistres par ``train_advanced.py --run``.
 - L'entrainer sur ``X_train`` uniquement, puis ecrire :
 
   - ``models/final_pipeline.joblib`` : pipeline entraine (pretraitement +
     modele), directement chargeable par ``src/models.py`` ;
-  - ``models/final_pipeline.json`` : metadonnees (modele, version de
-    scikit-learn, variables, hyperparametres, metriques test enregistrees,
-    effectifs du jeu de donnees).
+  - ``models/final_pipeline.json`` : metadonnees (modele, statut d'export,
+    version de scikit-learn, variables, hyperparametres, metriques test
+    enregistrees, effectifs du jeu de donnees).
 
 - Verifier le contrat d'integration en rechargement le fichier produit avec
   ``src/models.py`` (classes ``[0, 1]`` et six colonnes d'entree).
 
 Aucun fichier de modele n'est ecrit dans Git par ce script : c'est une
 decision d'equipe (voir ``docs/app_integration.md``). Le script se contente de
-produire les deux fichiers localement.
+produire les deux fichiers localement, et uniquement pour un essai technique.
 
 Usage
 -----
@@ -64,6 +73,11 @@ MODEL_NAMES: dict[str, str] = {
     "svm": "SVM",
 }
 
+# Statut inscrit dans les metadonnees : le fichier n'est pas un modele final
+# valide tant que SA n'a pas valide le tableau comparatif global des 6 modeles.
+EXPORT_STATUS = "candidate_not_validated"
+VALIDATION_REQUIRED = "tableau comparatif global des 6 modeles valide par SA"
+
 
 def load_recorded_results(
     path: str | Path = ta.DEFAULT_RESULTS_PATH,
@@ -93,10 +107,12 @@ def build_metadata(
     dataset: Mapping[str, Any],
     trained_by: str = "bl7j",
 ) -> dict[str, Any]:
-    """Construit les metadonnees du modele final (format ``src/models.py``).
+    """Construit les metadonnees du pipeline candidat (format ``src/models.py``).
 
     ``test_metrics`` provient du JSON de ``--run`` : ces mesures ne sont pas
-    recalculees ici, donc le jeu de test n'est pas reutilise.
+    recalculees ici, donc le jeu de test n'est pas reutilise. Les cles
+    ``export_status`` et ``validation_required`` rappellent que le fichier
+    produit n'est pas un modele final valide.
     """
     if model_name not in MODEL_NAMES:
         raise ValueError(
@@ -113,6 +129,8 @@ def build_metadata(
     return {
         "model_key": model_name,
         "model_name": MODEL_NAMES[model_name],
+        "export_status": EXPORT_STATUS,
+        "validation_required": VALIDATION_REQUIRED,
         "trained_by": trained_by,
         "sklearn_version": sklearn.__version__,
         "features": list(ta.FEATURE_COLUMNS),
@@ -174,10 +192,12 @@ def run_export(
     output: str | Path = DEFAULT_OUTPUT,
     trained_by: str = "bl7j",
 ) -> dict[str, Any]:
-    """Entraine le modele retenu sur le train et exporte le pipeline final.
+    """Entraine un pipeline candidat sur le train et l'exporte localement.
 
     Le jeu de test n'est pas utilise : les metriques enregistrees dans le JSON
-    de ``--run`` sont recopiees dans les metadonnees.
+    de ``--run`` sont recopiees dans les metadonnees. Le fichier produit porte
+    le statut ``candidate_not_validated`` : il ne remplace pas la decision
+    d'equipe sur le modele final.
     """
     recorded = load_recorded_results(results_path)
     if model_name not in recorded:
@@ -219,7 +239,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--model",
         required=True,
         choices=sorted(MODEL_NAMES),
-        help="modele retenu par l'equipe",
+        help="modele candidat a exporter (le choix final appartient a l'equipe)",
     )
     parser.add_argument(
         "--data", default=str(ta.DEFAULT_DATA_PATH), help="CSV brut"
@@ -258,12 +278,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Modele      : {loaded.name}")
     print(f"Pipeline    : {exported['path']}")
     print(f"Metadonnees : {exported['metadata_path']}")
+    print(f"Statut      : {EXPORT_STATUS} (candidat, non valide par SA)")
     print(f"Entrainement: {exported['train_rows']} lignes (train uniquement)")
     print(
         f"Verification: classe={prediction.predicted_class} "
         f"score={prediction.score:.4f} type={prediction.score_kind}"
     )
-    print("Contrat src/models.py verifie : le fichier est pret pour l'application.")
+    print("Contrat src/models.py verifie pour cet essai technique.")
+    print(
+        "Rappel : ce fichier ne designe pas le modele final ; attendre le "
+        "tableau comparatif des 6 modeles valide par SA."
+    )
     return 0
 
 

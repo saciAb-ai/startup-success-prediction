@@ -54,6 +54,8 @@ def test_build_metadata_contains_the_contract_keys() -> None:
 
     assert metadata["model_key"] == "random_forest"
     assert metadata["model_name"] == "Random Forest"
+    assert metadata["export_status"] == efm.EXPORT_STATUS == "candidate_not_validated"
+    assert "6 modeles" in metadata["validation_required"]
     assert metadata["features"] == list(ta.FEATURE_COLUMNS)
     assert metadata["best_params"] == {"n_estimators": 200}
     assert metadata["test_metrics"] == {"f1_macro": 0.7}
