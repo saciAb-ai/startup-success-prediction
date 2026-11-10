@@ -1,0 +1,378 @@
+{
+  "comparison_status": "informative_not_validated",
+  "validation_required": "choix et validation du modele final par SA",
+  "generated_at": "2026-11-10T18:47:36+00:00",
+  "generated_by": "src/compare_models.py",
+  "source_files": {
+    "classical": "C:\\Users\\ilyes\\Desktop\\projet DM\\reports\\cs23_classical_results.json",
+    "advanced": "C:\\Users\\ilyes\\Desktop\\projet DM\\reports\\advanced_models_results.json"
+  },
+  "protocol": {
+    "data_path": "data/raw/startup_data.csv",
+    "features": [
+      "country_code",
+      "state_code",
+      "region",
+      "city",
+      "primary_category",
+      "founding_year"
+    ],
+    "excluded": [
+      "founding_month"
+    ],
+    "scoring": "f1_macro",
+    "cv_folds": 5,
+    "random_state": 42
+  },
+  "dataset": {
+    "raw_rows": 65403,
+    "kept_rows": 13129,
+    "train_rows": 10503,
+    "test_rows": 2626,
+    "positive_share_train": 0.5307055127106541
+  },
+  "protocol_checks": [
+    {
+      "name": "chemin_donnees",
+      "expected": "data/raw/startup_data.csv",
+      "values": [
+        "data/raw/startup_data.csv",
+        "data/raw/startup_data.csv"
+      ],
+      "ok": true
+    },
+    {
+      "name": "variables",
+      "expected": [
+        "country_code",
+        "state_code",
+        "region",
+        "city",
+        "primary_category",
+        "founding_year"
+      ],
+      "values": [
+        [
+          "country_code",
+          "state_code",
+          "region",
+          "city",
+          "primary_category",
+          "founding_year"
+        ],
+        [
+          "country_code",
+          "state_code",
+          "region",
+          "city",
+          "primary_category",
+          "founding_year"
+        ]
+      ],
+      "ok": true
+    },
+    {
+      "name": "exclues",
+      "expected": [
+        "founding_month"
+      ],
+      "values": [
+        [
+          "founding_month"
+        ],
+        [
+          "founding_month"
+        ]
+      ],
+      "ok": true
+    },
+    {
+      "name": "critere_cv",
+      "expected": "f1_macro",
+      "values": [
+        "f1_macro",
+        "f1_macro"
+      ],
+      "ok": true
+    },
+    {
+      "name": "folds",
+      "expected": 5,
+      "values": [
+        5,
+        5
+      ],
+      "ok": true
+    },
+    {
+      "name": "graine",
+      "expected": 42,
+      "values": [
+        42,
+        42
+      ],
+      "ok": true
+    },
+    {
+      "name": "effectif_raw_rows",
+      "expected": 65403,
+      "values": [
+        65403,
+        65403
+      ],
+      "ok": true
+    },
+    {
+      "name": "effectif_kept_rows",
+      "expected": 13129,
+      "values": [
+        13129,
+        13129
+      ],
+      "ok": true
+    },
+    {
+      "name": "effectif_train_rows",
+      "expected": 10503,
+      "values": [
+        10503,
+        10503
+      ],
+      "ok": true
+    },
+    {
+      "name": "effectif_test_rows",
+      "expected": 2626,
+      "values": [
+        2626,
+        2626
+      ],
+      "ok": true
+    }
+  ],
+  "protocol_ok": true,
+  "versions": {
+    "classical": {
+      "python": "3.13.9",
+      "numpy": "2.1.3",
+      "pandas": "2.2.3",
+      "scikit-learn": "1.6.1",
+      "joblib": "1.4.2"
+    },
+    "advanced": {},
+    "versions_comparable": false
+  },
+  "models": {
+    "zero_r": {
+      "display_name": "Zero-R",
+      "group": "classiques",
+      "best_params": {},
+      "cv_f1_macro": null,
+      "cv_f1_std": null,
+      "cv_balanced_accuracy": null,
+      "cv_balanced_std": null,
+      "test": {
+        "accuracy": 0.5308453922315308,
+        "balanced_accuracy": 0.5,
+        "precision_macro": 0.2654226961157654,
+        "recall_macro": 0.5,
+        "f1_macro": 0.34676616915422886,
+        "roc_auc": 0.5,
+        "precision_fermeture": 0.0,
+        "recall_fermeture": 0.0,
+        "f1_fermeture": 0.0
+      },
+      "confusion_matrix": [
+        [
+          0,
+          1232
+        ],
+        [
+          0,
+          1394
+        ]
+      ],
+      "n_train": 10503,
+      "n_test": 2626
+    },
+    "knn": {
+      "display_name": "KNN",
+      "group": "classiques",
+      "best_params": {
+        "n_neighbors": 201,
+        "weights": "uniform"
+      },
+      "cv_f1_macro": 0.6846668693975723,
+      "cv_f1_std": 0.010642921324456546,
+      "cv_balanced_accuracy": 0.6857354043574516,
+      "cv_balanced_std": 0.013382536217813074,
+      "test": {
+        "accuracy": 0.6907844630616908,
+        "balanced_accuracy": 0.6823870623637481,
+        "precision_macro": 0.6989791640198195,
+        "recall_macro": 0.6823870623637481,
+        "f1_macro": 0.6806411165022079,
+        "roc_auc": 0.7517185782295179,
+        "precision_fermeture": 0.7267818574514039,
+        "recall_fermeture": 0.5462662337662337,
+        "f1_fermeture": 0.623725671918443
+      },
+      "confusion_matrix": [
+        [
+          673,
+          559
+        ],
+        [
+          253,
+          1141
+        ]
+      ],
+      "n_train": 10503,
+      "n_test": 2626
+    },
+    "decision_tree": {
+      "display_name": "Decision Tree",
+      "group": "classiques",
+      "best_params": {
+        "class_weight": "balanced",
+        "criterion": "gini",
+        "max_depth": 20,
+        "min_samples_leaf": 10,
+        "min_samples_split": 2
+      },
+      "cv_f1_macro": 0.6855935366181379,
+      "cv_f1_std": 0.014543625982755463,
+      "cv_balanced_accuracy": 0.6854289731440384,
+      "cv_balanced_std": 0.014409264430559064,
+      "test": {
+        "accuracy": 0.6907844630616908,
+        "balanced_accuracy": 0.6867733235200955,
+        "precision_macro": 0.6905274987407697,
+        "recall_macro": 0.6867733235200955,
+        "f1_macro": 0.6871769533028811,
+        "roc_auc": 0.754766194171682,
+        "precision_fermeture": 0.6888489208633094,
+        "recall_fermeture": 0.6217532467532467,
+        "f1_fermeture": 0.6535836177474402
+      },
+      "confusion_matrix": [
+        [
+          766,
+          466
+        ],
+        [
+          346,
+          1048
+        ]
+      ],
+      "n_train": 10503,
+      "n_test": 2626
+    },
+    "naive_bayes": {
+      "display_name": "Gaussian Naive Bayes",
+      "group": "classiques",
+      "best_params": {
+        "var_smoothing": 1e-05
+      },
+      "cv_f1_macro": 0.6495799440471065,
+      "cv_f1_std": 0.010401230723926394,
+      "cv_balanced_accuracy": 0.6500596536790267,
+      "cv_balanced_std": 0.01010728940985006,
+      "test": {
+        "accuracy": 0.6378522467631379,
+        "balanced_accuracy": 0.6376242570198811,
+        "precision_macro": 0.6371819762093393,
+        "recall_macro": 0.6376242570198811,
+        "f1_macro": 0.637180418668488,
+        "roc_auc": 0.675620469917457,
+        "precision_fermeture": 0.60967993754879,
+        "recall_fermeture": 0.6339285714285714,
+        "f1_fermeture": 0.6215678471945881
+      },
+      "confusion_matrix": [
+        [
+          781,
+          451
+        ],
+        [
+          500,
+          894
+        ]
+      ],
+      "n_train": 10503,
+      "n_test": 2626
+    },
+    "random_forest": {
+      "display_name": "Random Forest",
+      "group": "avances",
+      "best_params": {
+        "model__max_depth": null,
+        "model__min_samples_leaf": 2,
+        "model__n_estimators": 200
+      },
+      "cv_f1_macro": 0.6983751833706688,
+      "cv_f1_std": null,
+      "cv_balanced_accuracy": null,
+      "cv_balanced_std": null,
+      "test": {
+        "accuracy": 0.7010662604722011,
+        "balanced_accuracy": 0.697919772121709,
+        "precision_macro": 0.700369249705113,
+        "recall_macro": 0.697919772121709,
+        "f1_macro": 0.6983979351756222,
+        "roc_auc": 0.7763787055842292,
+        "precision_fermeture": 0.6948561464690497,
+        "recall_fermeture": 0.6469155844155844,
+        "f1_fermeture": 0.6700294241277848
+      },
+      "confusion_matrix": [
+        [
+          797,
+          435
+        ],
+        [
+          350,
+          1044
+        ]
+      ],
+      "n_train": null,
+      "n_test": null
+    },
+    "svm": {
+      "display_name": "SVM",
+      "group": "avances",
+      "best_params": {
+        "model__C": 1.0,
+        "model__gamma": "scale",
+        "model__kernel": "rbf"
+      },
+      "cv_f1_macro": 0.6996693447007484,
+      "cv_f1_std": null,
+      "cv_balanced_accuracy": null,
+      "cv_balanced_std": null,
+      "test": {
+        "accuracy": 0.7048743335872049,
+        "balanced_accuracy": 0.7006576189234008,
+        "precision_macro": 0.7052447104718512,
+        "recall_macro": 0.7006576189234008,
+        "f1_macro": 0.7011539014456183,
+        "roc_auc": 0.7632076943859585,
+        "precision_fermeture": 0.7075386012715713,
+        "recall_fermeture": 0.6323051948051948,
+        "f1_fermeture": 0.6678096870981569
+      },
+      "confusion_matrix": [
+        [
+          779,
+          453
+        ],
+        [
+          322,
+          1072
+        ]
+      ],
+      "n_train": null,
+      "n_test": null
+    }
+  }
+}
