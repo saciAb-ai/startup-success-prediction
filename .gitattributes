@@ -1,0 +1,3 @@
+# Livrables binaires : ne jamais convertir les fins de ligne.
+# Sans cette regle, core.autocrlf=true peut corrompre les PDF au checkout.
+*.pdf binary
