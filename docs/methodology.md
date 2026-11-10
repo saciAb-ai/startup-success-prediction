@@ -45,7 +45,7 @@ Nous rÃ©alisons **une seule expÃ©rience de classification**, avec deux class
 
 **Pourquoi exclure `operating` ?** Une startup encore active n'est pas nÃ©cessairement rentable et n'a pas forcÃ©ment connu une acquisition ou une IPO. La ranger dans la classe Â« succÃ¨s Â» rendrait la cible ambiguÃ«.
 
-**Effectifs attendus avant nettoyage :** 7 096 startups en classe 1 et 6 238 en classe 0, soit **13 334 lignes**, Ã  confirmer sur les donnÃ©es d'origine.
+**Effectifs attendus avant nettoyage :** 7 096 startups en classe 1 et 6 238 en classe 0, soit **13 334 lignes** avant filtre ; référence équipe data/raw/startup_data.csv sans ISR : **13 129** retenues (closed 6161, acquired 5463, ipo 1505), split **10 503/2 626** (seed 42).
 
 **Attention Ã  l'interprÃ©tation :** dans ce projet, Â« succÃ¨s Â» est une **convention de classification**, pas une preuve de rentabilitÃ©. L'exclusion des entreprises actives entraÃ®ne un **biais de sÃ©lection** : le modÃ¨le Ã©tudie uniquement les startups aux issues retenues. Il ne fournit donc pas la probabilitÃ© rÃ©elle de succÃ¨s de toutes les nouvelles startups.
 
