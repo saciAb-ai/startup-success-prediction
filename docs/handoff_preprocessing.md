@@ -24,20 +24,30 @@ CSV brut
 Ne sautez aucune etape et **ne refiltrez pas les statuts vous-memes** : `operating`
 doit rester exclu, sinon la cible change de sens.
 
+**Dataset de reference :** `data/raw/startup_data.csv`, **65 403 lignes, sans
+startup israelienne**. L'ancien export Kaggle (66 368 lignes, ISR incluses) n'est
+plus valable : il fausse tous les effectifs du rapport. `load_raw` affiche un
+avertissement `[ATTENTION]` si le fichier charge n'est pas celui de reference
+(mauvais nom, mauvais nombre de lignes, ou lignes `ISR` detectees).
+
 ```python
 import sys
 sys.path.insert(0, "src")
 
 import data_loader, features, targets, splitting
 
-brut = data_loader.load_raw("data/raw/startup_data.csv")
+brut = data_loader.load_raw("data/raw/startup_data.csv")   # chemin explicite
 carac = features.build_features(brut, max_year=2026)
 donnees = targets.prepare_target(carac)
 X_train, X_test, y_train, y_test = splitting.split_dataset(donnees)
 ```
 
-Resultat attendu : **13 334 lignes** au total, **10 667 / 2 667** apres decoupage,
-classe 1 = **53,2 %** dans les deux jeux.
+Un chemin different peut etre impose par la variable d'environnement
+`STARTUP_DATA_PATH` (meme nom que dans l'application) ; `find_raw_file()` la
+respecte avant de chercher le fichier canonique.
+
+Resultat attendu : **13 129 lignes** conservees, **10 503 / 2 626** apres
+decoupage, classe 1 = **53,1 %** des deux cotes.
 
 ---
 
@@ -54,7 +64,7 @@ classe 1 = **53,2 %** dans les deux jeux.
 | `primary_category` | categorielle | idem |
 | `founding_year` | numerique | mediane (+ standardisation si `scale=True`) |
 
-`founding_month` **n'est pas une entree** : 42,6 % des dates sont au `01-01`
+`founding_month` **n'est pas une entree** : 42,3 % des dates sont au `01-01`
 (annee seule), le mois est un artefact de precision de date. La colonne reste
 calculee pour l'EDA (`features.EDA_ONLY_COLUMNS`) et ne doit pas etre ajoutee a
 la main dans vos listes de variables.
@@ -87,6 +97,12 @@ re-appris a chaque fold, donc pas de fuite pendant la recherche d'hyperparametre
 
 ### wlid : application
 
+Le contrat de l'application est decrit dans `docs/app_integration.md` :
+**`models/final_pipeline.joblib`** (ou `STARTUP_MODEL_PATH`), avec
+`models/final_pipeline.json` en metadonnees facultatives. C'est le seul nom de
+fichier a utiliser : le modele final est unique, choisi apres la comparaison des
+six modeles.
+
 ```python
 import joblib
 from preprocessing import build_pipeline
@@ -95,10 +111,10 @@ from preprocessing import build_pipeline
 pipeline = build_pipeline(RandomForestClassifier(), scale=False)
 pipeline.fit(X_train, y_train)
 Path("models").mkdir(exist_ok=True)
-joblib.dump(pipeline, "models/pipeline.joblib")   # ne pas versionner ce fichier
+joblib.dump(pipeline, "models/final_pipeline.joblib")   # ne pas versionner ce fichier
 
 # 2) prediction d'une startup saisie dans le formulaire
-pipeline = joblib.load("models/pipeline.joblib")
+pipeline = joblib.load("models/final_pipeline.joblib")
 ligne = features.build_features(pd.DataFrame([saisie]), max_year=2026)
 prediction = pipeline.predict(ligne)          # DataFrame avec les 6 colonnes
 ```
@@ -127,17 +143,19 @@ Deux points importants pour l'app :
 
 ## 5. Chiffres attendus (pour verifier votre integration)
 
+Reference : `data/raw/startup_data.csv`, 65 403 lignes, sans ISR.
+
 | Indicateur | Valeur |
 |---|---|
-| Lignes brutes | 66 368 x 14 |
-| Lignes conservees | 13 334 (IPO 1 547 + acquired 5 549 + closed 6 238) |
-| Train / test | 10 667 / 2 667 |
+| Lignes brutes | 65 403 x 14 |
+| Lignes conservees | 13 129 (IPO 1 505 + acquired 5 463 + closed 6 161) |
+| Train / test | 10 503 / 2 626 (seed 42, stratifie) |
 | Variables d'entree | 6 |
-| Colonnes apres pretraitement | **306** (`min_frequency=20`) |
-| Colonnes sans regroupement | 2 819 |
+| Colonnes apres pretraitement | **300** (`min_frequency=20`) |
+| Colonnes sans regroupement | 2 764 |
 | Valeurs manquantes apres pretraitement | 0 |
-| Villes encodees (train) | 1 515 |
-| Villes presentes uniquement dans le test | 197 (transformees sans erreur) |
+| Villes encodees (train) | 1 480 |
+| Villes presentes uniquement dans le test | 191 (transformees sans erreur) |
 
 Si vous obtenez autre chose, c'est que la chaine a ete court-circuitee quelque part.
 
