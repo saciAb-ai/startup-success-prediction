@@ -12,10 +12,16 @@ Usage :
     python src/data_loader.py data/raw/startup_data.csv
     python src/data_loader.py            # cherche automatiquement le CSV
     python src/data_loader.py --demo     # test sans dataset Kaggle
+
+Le dataset de reference de l'equipe est ``data/raw/startup_data.csv``
+(65 403 lignes, sans startup israelienne). Un ancien export Kaggle
+(66 368 lignes, ISR incluses) donnerait des effectifs et des scores non
+comparables : le module le signale par un avertissement.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -31,14 +37,82 @@ SEARCH_PATTERNS = ("data/raw/*.csv", "data/*.csv", "*.csv")
 # Bornes de controle des dates de creation (annees aberrantes).
 MIN_PLAUSIBLE_YEAR = 1900
 
+# Dataset de reference de l'equipe : 65 403 lignes, sans startup israelienne.
+# L'ancien export Kaggle (66 368 lignes, ISR incluses) fausse les effectifs
+# annonces dans le rapport et rend la comparaison des modeles non equitable.
+REFERENCE_PATH = Path("data/raw/startup_data.csv")
+EXPECTED_REFERENCE_ROWS = 65_403
+REFERENCE_EXCLUDED_COUNTRY = "ISR"
 
-def load_raw(path: str | Path) -> pd.DataFrame:
+# Variable d'environnement permettant d'imposer un chemin explicite
+# (meme nom que celui utilise par l'application Streamlit).
+DATA_PATH_ENV = "STARTUP_DATA_PATH"
+
+
+def reference_warnings(df: pd.DataFrame, path: str | Path | None = None) -> list[str]:
+    """Retourne les alertes signalant un dataset different de la reference.
+
+    Aucune exception n'est levee : le chargement reste possible, mais
+    l'utilisateur est prevenu que le fichier ne correspond pas au protocole
+    commun. Trois controles sont faits :
+
+    - nom du fichier (``data/raw/startup_data.csv`` attendu) ;
+    - nombre de lignes (65 403 attendues) ;
+    - absence de lignes ``ISR``, exclues du protocole de reference.
+
+    Parametres
+    ----------
+    df : pandas.DataFrame
+        Donnees chargees.
+    path : str | Path | None
+        Chemin utilise, pour verifier le nom canonique.
+
+    Retour
+    ------
+    list[str]
+        Messages d'alerte, vide si le dataset est bien celui de reference.
+    """
+    alerts: list[str] = []
+
+    if path is not None:
+        path = Path(path)
+        if path.name != REFERENCE_PATH.name:
+            alerts.append(
+                f"fichier non canonique : {path} "
+                f"(reference : {REFERENCE_PATH})."
+            )
+
+    n_rows = int(df.shape[0])
+    if n_rows != EXPECTED_REFERENCE_ROWS:
+        alerts.append(
+            f"{n_rows} lignes chargees au lieu de {EXPECTED_REFERENCE_ROWS} : "
+            "dataset different de la reference (ancien CSV avec ISR ?). "
+            "Les effectifs et les scores ne seront pas comparables."
+        )
+
+    if "country_code" in df.columns:
+        countries = df["country_code"].astype("string").str.upper()
+        n_excluded = int((countries == REFERENCE_EXCLUDED_COUNTRY).sum())
+        if n_excluded:
+            alerts.append(
+                f"{n_excluded} lignes {REFERENCE_EXCLUDED_COUNTRY} detectees : "
+                "le protocole de reference exclut ces lignes."
+            )
+
+    return alerts
+
+
+def load_raw(path: str | Path, check_reference: bool = True) -> pd.DataFrame:
     """Charge le CSV brut et normalise uniquement les noms de colonnes.
 
     Parametres
     ----------
     path : str | Path
         Chemin du CSV telecharge depuis Kaggle.
+    check_reference : bool
+        Signale sur la sortie d'erreur les ecarts avec le dataset de reference
+        (nom, nombre de lignes, lignes ISR). Ne leve jamais d'exception :
+        c'est un garde-fou, pas un blocage.
 
     Retour
     ------
@@ -68,26 +142,63 @@ def load_raw(path: str | Path) -> pd.DataFrame:
             f"Colonnes obligatoires absentes : {missing}. "
             f"Colonnes presentes : {list(df.columns)}"
         )
+
+    if check_reference:
+        for alert in reference_warnings(df, path):
+            print(f"[ATTENTION] {alert}", file=sys.stderr)
     return df
 
 
 def find_raw_file(base: str | Path = ".") -> Path | None:
-    """Retourne le CSV brut à utiliser.
+    """Retourne le CSV brut a utiliser, en privilegiant la reference.
 
-    Priorité au fichier canonique de l'équipe (data/raw/startup_data.csv) pour
-    éviter de sélectionner un CSV local parasite plus volumineux. Sinon, retourne
-    le plus gros CSV trouvé dans les emplacements attendus.
+    Ordre de priorite :
+
+    1. chemin impose par la variable d'environnement ``STARTUP_DATA_PATH`` ;
+    2. fichier canonique ``data/raw/startup_data.csv`` ;
+    3. repli : plus gros CSV trouve dans ``data/raw/``, ``data/`` ou la racine.
+       Un avertissement est alors affiche : ce fichier n'est pas la reference
+       et les effectifs annonces dans le rapport ne seront pas reproduits.
+
+    Parametres
+    ----------
+    base : str | Path
+        Racine du projet (par defaut le dossier courant).
+
+    Retour
+    ------
+    pathlib.Path | None
+        Chemin du CSV, ou ``None`` si aucun fichier n'a ete trouve.
     """
     base = Path(base)
-    canonical = base / "data" / "raw" / "startup_data.csv"
+
+    forced = os.environ.get(DATA_PATH_ENV)
+    if forced:
+        forced_path = Path(forced)
+        if not forced_path.is_file():
+            raise FileNotFoundError(
+                f"{DATA_PATH_ENV} pointe vers un fichier absent : {forced_path}"
+            )
+        return forced_path
+
+    canonical = base / REFERENCE_PATH
     if canonical.is_file():
         return canonical
+
     candidates: list[Path] = []
     for pattern in SEARCH_PATTERNS:
         candidates.extend(path for path in base.glob(pattern) if path.is_file())
     if not candidates:
         return None
-    return max(candidates, key=lambda path: path.stat().st_size)
+
+    chosen = max(candidates, key=lambda path: path.stat().st_size)
+    print(
+        f"[ATTENTION] {REFERENCE_PATH} introuvable : repli sur {chosen}. "
+        f"Ce fichier n'est pas le dataset de reference "
+        f"({EXPECTED_REFERENCE_ROWS} lignes attendues).",
+        file=sys.stderr,
+    )
+    return chosen
 
 
 def audit(df: pd.DataFrame, current_year: int | None = None) -> dict:
@@ -200,8 +311,28 @@ def _demo() -> None:
     assert report["founded_at"]["n_before_1900"] == 1
     assert report["founded_at"]["n_in_future"] == 1
 
+    # Garde-fou : nom non canonique et mauvais effectif doivent etre signales.
+    alerts = reference_warnings(example, Path("autre.csv"))
+    assert any("non canonique" in alert for alert in alerts)
+    assert any(str(EXPECTED_REFERENCE_ROWS) in alert for alert in alerts)
+
+    isr_rows = pd.DataFrame(
+        {
+            "status": ["ipo"],
+            "category_list": ["Software"],
+            "founded_at": ["2010-01-01"],
+            "country_code": ["ISR"],
+        }
+    )
+    assert any("ISR" in alert for alert in reference_warnings(isr_rows))
+
+    # Le dataset de reference ne declenche aucune alerte.
+    aligned = pd.DataFrame({"country_code": ["USA"] * EXPECTED_REFERENCE_ROWS})
+    assert reference_warnings(aligned) == []
+
     print_report(report)
     print("\nTEST OK : audit des dimensions, manquants, statuts et dates aberrantes.")
+    print("TEST OK : garde-fou du dataset de reference (nom, effectif, ISR).")
 
 
 def main(argv: list[str] | None = None) -> int:
