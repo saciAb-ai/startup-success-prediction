@@ -1,0 +1,149 @@
+{
+  "generated_by": "CS23",
+  "generated_at": "2026-11-18T21:30:10+00:00",
+  "protocol": {
+    "data_path": "data/raw/startup_data.csv",
+    "features": [
+      "country_code",
+      "state_code",
+      "region",
+      "city",
+      "primary_category",
+      "founding_year"
+    ],
+    "excluded": [
+      "founding_month"
+    ],
+    "scoring": "f1_macro",
+    "secondary_scoring": "balanced_accuracy",
+    "cv_folds": 5,
+    "test_size": 0.2,
+    "random_state": 42,
+    "max_year": 2026,
+    "scale": {
+      "xgboost": false,
+      "adaboost": false
+    },
+    "tuning_on_train_only": true,
+    "test_used_once": true
+  },
+  "dataset": {
+    "raw_rows": 65403,
+    "kept_rows": 13129,
+    "train_rows": 10503,
+    "test_rows": 2626,
+    "positive_share_train": 0.5307055127106541
+  },
+  "versions": {
+    "python": "3.13.9",
+    "numpy": "2.1.3",
+    "pandas": "2.2.3",
+    "scikit-learn": "1.6.1",
+    "joblib": "1.4.2",
+    "xgboost": "3.4.1"
+  },
+  "models": {
+    "xgboost": {
+      "best_params": {
+        "colsample_bytree": 1.0,
+        "learning_rate": 0.1,
+        "max_depth": 3,
+        "n_estimators": 400,
+        "subsample": 0.8
+      },
+      "cv_score": 0.7028681374569673,
+      "cv_std": 0.012443152192974915,
+      "cv_balanced_accuracy": 0.7025660097783799,
+      "cv_balanced_std": 0.012247376831335316,
+      "n_configurations": 32,
+      "tune_seconds": 71.35626479994971,
+      "train_score": 0.7344084711187342,
+      "n_train": 10503,
+      "n_test": 2626,
+      "test": {
+        "accuracy": 0.7048743335872049,
+        "balanced_accuracy": 0.6988182190836423,
+        "precision_macro": 0.7082190711575131,
+        "recall_macro": 0.6988182190836423,
+        "f1_macro": 0.69886368260352,
+        "precision_fermeture": 0.7233626588465298,
+        "recall_fermeture": 0.6006493506493507,
+        "f1_fermeture": 0.656319290465632,
+        "confusion_matrix": [
+          [
+            740,
+            492
+          ],
+          [
+            283,
+            1111
+          ]
+        ],
+        "roc_auc": 0.7773918602917886
+      }
+    },
+    "adaboost": {
+      "best_params": {
+        "estimator__max_depth": 3,
+        "learning_rate": 0.5,
+        "n_estimators": 200
+      },
+      "cv_score": 0.6936590093165705,
+      "cv_std": 0.011429502590699041,
+      "cv_balanced_accuracy": 0.6948787185248289,
+      "cv_balanced_std": 0.011219956705854177,
+      "n_configurations": 27,
+      "tune_seconds": 670.3114122999832,
+      "train_score": 0.6989561788156079,
+      "n_train": 10503,
+      "n_test": 2626,
+      "test": {
+        "accuracy": 0.6915460776846916,
+        "balanced_accuracy": 0.6823497969032402,
+        "precision_macro": 0.7024719278373444,
+        "recall_macro": 0.6823497969032402,
+        "f1_macro": 0.679846330573497,
+        "precision_fermeture": 0.7365470852017937,
+        "recall_fermeture": 0.5332792207792207,
+        "f1_fermeture": 0.6186440677966102,
+        "confusion_matrix": [
+          [
+            657,
+            575
+          ],
+          [
+            235,
+            1159
+          ]
+        ],
+        "roc_auc": 0.7703967257634762
+      }
+    }
+  },
+  "comparison": {
+    "classical_baselines": {
+      "zero_r": {
+        "cv_f1_macro": null,
+        "test_f1_macro": 0.34676616915422886,
+        "test_roc_auc": 0.5
+      },
+      "knn": {
+        "cv_f1_macro": 0.6846668693975723,
+        "test_f1_macro": 0.6806411165022079,
+        "test_roc_auc": 0.7517185782295179
+      },
+      "decision_tree": {
+        "cv_f1_macro": 0.6855935366181379,
+        "test_f1_macro": 0.6871769533028811,
+        "test_roc_auc": 0.754766194171682
+      },
+      "naive_bayes": {
+        "cv_f1_macro": 0.6495799440471065,
+        "test_f1_macro": 0.637180418668488,
+        "test_roc_auc": 0.675620469917457
+      }
+    },
+    "best_ensemble_by_cv": "xgboost",
+    "best_ensemble_by_test": "xgboost"
+  }
+}
