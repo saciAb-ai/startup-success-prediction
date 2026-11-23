@@ -2,9 +2,10 @@
 
 Éléments exigés : statistiques descriptives (vue d'ensemble), valeurs
 manquantes, histogrammes et densités (KDE), fréquences catégorielles,
-corrélations et filtres interactifs (barre latérale). L'onglet « Géographie et
-tendances » est un complément. Les calculs viennent de app_data et
-app_insights, testés sans Streamlit ; ce module ne fait que l'affichage.
+corrélations et filtres interactifs (barre latérale). Les onglets « Géographie et
+tendances » et « Tests statistiques » (passation EDA, docs/handoff_eda.md) sont
+des compléments. Les calculs viennent de app_data, app_insights et
+app_inference, testés sans Streamlit ; ce module ne fait que l'affichage.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import app_data
+import app_inference
 import app_insights
 import features
 import ui
@@ -54,6 +56,7 @@ TABS = (
     ":material/category: Catégories",
     ":material/hub: Corrélations",
     ":material/public: Géographie et tendances",
+    ":material/science: Tests statistiques",
 )
 
 
@@ -526,6 +529,166 @@ def _geography(data: pd.DataFrame) -> None:
     )
 
 
+def _expected_warning(report, name: str) -> None:
+    """Avertit quand l'approximation du chi-deux est fragile (règle de Cochran)."""
+    if not isinstance(report, dict):
+        return
+    if report["cells_below_1"] > 0:
+        st.error(
+            f"{name} : {report['cells_below_1']} case(s) ont un effectif attendu inférieur à 1. "
+            "L'approximation du chi-deux n'est pas fiable : ne pas interpréter la p-value.",
+            icon=":material/error:",
+        )
+    elif report["cells_below_5"] > 0:
+        st.warning(
+            f"{name} : {report['cells_below_5']} case(s) ont un effectif attendu inférieur à 5 "
+            "(règle de Cochran). La p-value est approximative : à lire avec prudence.",
+            icon=":material/warning:",
+        )
+
+
+def _residual_chart(report: dict) -> None:
+    residuals = report["residuals"].head(15).iloc[::-1]
+    names = [app_inference.OTHER_DISPLAY if name == app_inference.OTHER else str(name) for name in residuals.index]
+    chart_data = pd.DataFrame(
+        {
+            "secteur": names,
+            "résidu": residuals.to_numpy(),
+            "sens": ["Plus de succès qu'attendu" if value > 0 else "Moins de succès qu'attendu" for value in residuals],
+        }
+    )
+    figure = px.bar(
+        chart_data,
+        x="résidu",
+        y="secteur",
+        orientation="h",
+        color="sens",
+        color_discrete_map={"Plus de succès qu'attendu": ui.SUCCESS, "Moins de succès qu'attendu": ui.FAILURE},
+        labels={"résidu": "Résidu de Pearson (colonne succès)", "secteur": "", "sens": ""},
+        title="Secteurs qui portent l'association (15 plus forts résidus)",
+    )
+    figure.update_traces(hovertemplate="%{y} : résidu %{x:.2f}<extra></extra>")
+    figure.add_vline(x=0, line_color=ui.INK, line_width=1)
+    ui.chart(figure, key="eda_residual_chart", height=140 + 26 * len(chart_data))
+
+
+def _inference(data: pd.DataFrame) -> None:
+    """Complément : tests statistiques formels (passation EDA de ZM, Phase 1)."""
+    ui.note(
+        "Tests d'hypothèse sur les startups dont l'issue est connue : le secteur est-il lié à l'issue ? "
+        "L'année de création et le financement diffèrent-ils entre succès et fermetures ? "
+        "Une p-value dit si une différence est probable ; la taille d'effet dit si elle est grande. "
+        "Un lien n'est pas une cause."
+    )
+    if not app_inference.scipy_available():
+        st.error(app_inference.SCIPY_MISSING, icon=":material/error:")
+        return
+    scope = app_data.modeling_rows(data)
+    if scope.empty or scope["target"].nunique() < 2:
+        st.info("Aucune startup avec une issue connue dans cette sélection.")
+        return
+    successes = int(scope["target"].eq(1).sum())
+    st.caption(
+        f"Périmètre : {app_data.fmt_int(len(scope))} startups avec issue connue "
+        f"({app_data.fmt_int(successes)} succès, {app_data.fmt_int(len(scope) - successes)} échecs), après filtres. "
+        "Les tests sont recalculés sur la sélection filtrée. Les valeurs de référence (en bas de l'onglet) "
+        "portent sur l'ensemble labellisé complet (13 129 startups) : un écart est attendu lorsque des "
+        "filtres sont actifs."
+    )
+    results = app_inference.run_all(scope)
+    primary, sensitivity = results["chi_primary"], results["chi_sensitivity"]
+
+    st.markdown("##### 1. Secteur principal et issue : test du chi-deux")
+    st.markdown(
+        "H0 : le secteur et l'issue sont indépendants. Les secteurs de moins de 30 startups sont "
+        "regroupés dans « Autres » ; le seuil de 100 sert d'analyse de sensibilité. Les secteurs "
+        "manquants sont exclus (ce n'est pas une modalité)."
+    )
+    if isinstance(primary, str):
+        st.info(primary)
+    else:
+        st.dataframe(app_inference.chi_table(primary, sensitivity))
+        if isinstance(sensitivity, str):
+            st.caption(f"Sensibilité (< 100 lignes) non calculable : {sensitivity}")
+        _expected_warning(primary, "Spécification primaire")
+        _expected_warning(sensitivity, "Sensibilité")
+        st.markdown(
+            f"V de Cramér = {app_inference.fr_fixed(primary['v'], 4)} : de 0 (aucun lien) à 1. "
+            "Repère indicatif : 0,1 petit, 0,3 modéré, 0,5 grand."
+        )
+        _residual_chart(primary)
+        st.dataframe(app_inference.residual_table(primary), hide_index=True)
+        st.caption(
+            "Résidu positif : le secteur compte plus de succès que si l'issue ne dépendait pas du secteur ; "
+            "négatif : moins. « Autres » mélange les petits secteurs : ce n'est pas un vrai secteur."
+        )
+
+    st.markdown("##### 2. Année de création et financement : tests de Mann-Whitney")
+    st.markdown(
+        "H0 : succès et échecs ont la même distribution. Test bilatéral, sans hypothèse de normalité, "
+        "sur les valeurs observées seulement (aucune imputation)."
+    )
+    reports = [results[f"mw_{column}"] for column in app_inference.MW_VARIABLES]
+    labels = [app_inference.MW_LABELS[column] for column in app_inference.MW_VARIABLES]
+    st.dataframe(app_inference.mw_table(reports, labels), hide_index=True)
+    for report, name in zip(reports, labels):
+        if isinstance(report, dict):
+            st.markdown("- " + app_inference.mw_reading(report))
+        else:
+            st.info(f"{name} : {report}")
+    st.caption(
+        "r de rang-bisérial : de -1 à +1 ; négatif = valeurs plus petites chez les succès. "
+        "Le financement est décrit ici mais reste interdit en entrée du modèle (connu après la création)."
+    )
+
+    st.markdown("##### 3. Correction de Holm (trois tests primaires)")
+    st.dataframe(app_inference.holm_table(results["holm_raw"], results["holm_adjusted"]), hide_index=True)
+    available = int(pd.notna(results["holm_raw"]).sum())
+    if available < len(app_inference.FAMILY_LABELS):
+        st.caption(f"Famille réduite : la correction porte sur les {available} test(s) calculable(s).")
+    st.caption(
+        "Faire trois tests augmente le risque d'un faux positif ; Holm ajuste les p-values pour garder "
+        "ce risque global sous 5 %. La sensibilité (< 100 lignes) n'en fait pas partie."
+    )
+
+    with st.expander("Interprétation et limites", icon=":material/lightbulb:"):
+        st.markdown(
+            "- **Signification ≠ importance** : sur un grand échantillon (13 129 startups sans filtre), même un petit lien est "
+            "significatif. Lire le V de Cramér, le r de rang-bisérial et P(succès > échec).\n"
+            "- **Biais de sélection** : données observationnelles ; les startups encore actives sont exclues "
+            "et le contraste compare IPO/acquisition à fermeture.\n"
+            "- **Valeurs manquantes inégales** : l'année manque plus souvent chez les échecs (34,8 %) que chez "
+            "les succès (22,6 %), le financement aussi (21,3 % contre 12,3 %). Les résultats portent sur les "
+            "valeurs observées.\n"
+            "- **Fenêtre d'observation** : instantané vers 2016 ; les startups récentes ont eu moins de temps "
+            "pour être rachetées.\n"
+            "- **Regroupement** : le chi-deux dépend du seuil choisi ; la sensibilité (< 100) le vérifie.\n"
+            "- **Variables interdites** : le financement et l'année séparent fortement les issues, mais le "
+            "financement est connu après la création : c'est un signal de fuite, pas une piste pour le modèle.\n"
+            "- **Aucune causalité** : ces tests décrivent des associations, ils n'expliquent pas pourquoi une "
+            "startup réussit."
+        )
+
+    with st.expander("Valeurs de référence (ensemble labellisé)", icon=":material/fact_check:"):
+        st.caption(
+            "Résultats du notebook EDA (notebooks/01_eda.ipynb, §17) sur les 13 129 startups labellisées, "
+            "sans filtre. Ils ne sont pas recalculés."
+        )
+        st.dataframe(app_inference.reference_chi_table())
+        st.dataframe(app_inference.reference_mw_table(), hide_index=True)
+        st.dataframe(app_inference.reference_holm_table(), hide_index=True)
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    (app_inference.OTHER_DISPLAY if name == app_inference.OTHER else name, value)
+                    for name, value in app_inference.REFERENCE_RESIDUALS
+                ],
+                columns=["Secteur", "Résidu de Pearson (succès)"],
+            ),
+            hide_index=True,
+        )
+
+
 def _preview(data: pd.DataFrame) -> None:
     columns = [column for column in ("name", *features.FEATURE_COLUMNS, "status", "issue") if column in data.columns]
     with st.expander("Données filtrées", icon=":material/table_view:"):
@@ -552,7 +715,7 @@ def render(frame: pd.DataFrame, source: str) -> None:
         return
     _kpis(frame, data)
     tabs = st.tabs(list(TABS))
-    sections = (_overview, _missing_values, _distributions, _categories, _correlations, _geography)
+    sections = (_overview, _missing_values, _distributions, _categories, _correlations, _geography, _inference)
     for tab, section in zip(tabs, sections):
         with tab:
             section(data)

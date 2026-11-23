@@ -40,6 +40,18 @@ def test_eda_dashboard(dataset_csv, tmp_path, monkeypatch):
     app = _run_app()
     assert not app.exception
     assert any("EDA" in title.value for title in app.title)
+    assert any("Tests statistiques" in tab.label for tab in app.tabs)
+    assert any("Périmètre :" in caption.value for caption in app.caption)
+
+
+def test_eda_statistical_tests_empty_selection(dataset_csv, tmp_path, monkeypatch):
+    """Une sélection sans issue connue affiche un message, pas de test ni d'exception."""
+    monkeypatch.setenv("STARTUP_MODEL_PATH", str(tmp_path / "absent.joblib"))
+    app = AppTest.from_file(str(APP_PATH), default_timeout=120)
+    app.session_state["eda_issues"] = ["Exclu (operating)"]
+    app.run()
+    assert not app.exception
+    assert any("Aucune startup avec une issue connue" in info.value for info in app.info)
 
 
 def test_profile_page_without_model(dataset_csv, tmp_path, monkeypatch):
