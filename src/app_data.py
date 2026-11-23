@@ -31,6 +31,9 @@ import targets
 SRC_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SRC_DIR.parent
 DATA_PATH_ENV = "STARTUP_DATA_PATH"  # chemin explicite du CSV (tests, démo)
+# Année maximale plausible de création : même valeur que les scripts
+# d'entraînement et que le notebook EDA, pour des résultats reproductibles.
+EDA_MAX_YEAR = 2026
 
 LABEL_SUCCESS = "Succès (IPO / acquisition)"
 LABEL_FAILURE = "Échec (fermeture)"
@@ -116,7 +119,7 @@ def find_dataset(base: str | Path = PROJECT_ROOT) -> Path | None:
     return data_loader.find_raw_file(base)
 
 
-def build_eda_frame(raw: pd.DataFrame) -> pd.DataFrame:
+def build_eda_frame(raw: pd.DataFrame, max_year: int | None = EDA_MAX_YEAR) -> pd.DataFrame:
     """Prépare le DataFrame du dashboard à partir du CSV brut.
 
     - variables du modèle : ``features.build_features`` ;
@@ -126,8 +129,11 @@ def build_eda_frame(raw: pd.DataFrame) -> pd.DataFrame:
 
     Aucune ligne n'est supprimée : le filtre « Issue » du dashboard choisit le
     périmètre (par défaut, celui de la modélisation).
+
+    ``max_year`` est transmis à ``features.build_features`` (2026 par défaut,
+    comme l'entraînement et le notebook EDA) ; ``None`` prend l'année courante.
     """
-    frame = features.build_features(raw)
+    frame = features.build_features(raw, max_year=max_year)
 
     status = frame["status"].astype("string").str.strip().str.lower()
     frame["status"] = status
